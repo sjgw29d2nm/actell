@@ -60,16 +60,15 @@ import XCTest
         XCTAssertTrue(file.waitForExistence(timeout: 5)); file.tap()
         let note = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
         if !note.waitForExistence(timeout: 1) {
-            // The Files picker is rendered remotely and its Browse tab is absent
-            // from XCUIElement queries on current simulator runtimes.
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.71, dy: 0.94)).tap()
-            let local = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
-            if local.waitForExistence(timeout: 3) { local.tap() }
-            else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap() }
-            let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
+            let browse = app.tabBars.buttons["Browse"]
+            XCTAssertTrue(browse.waitForExistence(timeout: 5), app.debugDescription); browse.tap()
+            let local = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
+            XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription); local.tap()
+            let folder = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
-        XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription); note.tap()
+        let nativeNote = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
+        XCTAssertTrue(nativeNote.waitForExistence(timeout: 5), app.debugDescription); nativeNote.tap()
         let open = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Open", "打开", "Done", "完成"])).firstMatch
         if open.waitForExistence(timeout: 2) { open.tap() }
         XCTAssertTrue(app.scrollViews["draftAttachments"].waitForExistence(timeout: 8), app.debugDescription)

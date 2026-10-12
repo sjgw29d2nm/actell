@@ -183,6 +183,15 @@ struct ConversationView: View {
     }
     private var modelSettingsPanel: some View {
         VStack(spacing: 0) {
+            HStack {
+                Text("模型设置").font(.headline)
+                Spacer()
+                Button("完成") { showingModelSettings = false }
+                    .accessibilityIdentifier("closeConversationModelSettings")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            Divider()
             Menu {
                 ForEach(presentation.providers) { provider in
                     Button { presentation.selectProvider(provider.id) } label: {

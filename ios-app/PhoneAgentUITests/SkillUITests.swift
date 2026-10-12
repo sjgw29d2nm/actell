@@ -41,16 +41,15 @@ import XCTest
         app.buttons["importSkill"].tap()
         let file = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "SKILL")).firstMatch
         if !file.waitForExistence(timeout: 2) {
-            // The Files picker is rendered remotely and its Browse tab is absent
-            // from XCUIElement queries on current simulator runtimes.
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.71, dy: 0.94)).tap()
+            let browse = app.tabBars.buttons["Browse"]
+            XCTAssertTrue(browse.waitForExistence(timeout: 5), app.debugDescription); browse.tap()
             let local = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
-            if local.waitForExistence(timeout: 3) { local.tap() }
-            else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap() }
-            let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
+            XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription); local.tap()
+            let folder = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
-        XCTAssertTrue(file.waitForExistence(timeout: 5), app.debugDescription); file.tap()
+        let nativeFile = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "SKILL")).firstMatch
+        XCTAssertTrue(nativeFile.waitForExistence(timeout: 5), app.debugDescription); nativeFile.tap()
         let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
         if open.waitForExistence(timeout: 1) { open.tap() }
     }

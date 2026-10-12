@@ -496,9 +496,7 @@ import XCTest
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "model-b-alt"), object: picker)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
         if app.buttons["conversationProviderRow"].exists {
-            // Tap outside the popover; the model picker itself is covered by
-            // the presented popover and has no hit point while it is open.
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+            app.buttons["closeConversationModelSettings"].tap()
             let dismissed = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "exists == false"), object: app.buttons["conversationProviderRow"])
             XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
