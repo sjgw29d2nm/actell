@@ -39,17 +39,17 @@ import XCTest
     }
     private func importSkill(_ app: XCUIApplication) {
         app.buttons["importSkill"].tap()
-        let file = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "SKILL")).firstMatch
+        let file = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "SKILL")).firstMatch
         if !file.waitForExistence(timeout: 2) {
-            let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
+            let browse = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
             if browse.waitForExistence(timeout: 2) { browse.tap() }
-            let local = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
+            let local = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
             if local.waitForExistence(timeout: 2) { local.tap() }
-            let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
+            let folder = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
         XCTAssertTrue(file.waitForExistence(timeout: 5), app.debugDescription); file.tap()
-        let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
+        let open = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Open", "打开"])).firstMatch
         if open.waitForExistence(timeout: 1) { open.tap() }
     }
     private func capture(_ name: String) {

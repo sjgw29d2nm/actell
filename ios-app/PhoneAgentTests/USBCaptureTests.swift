@@ -171,7 +171,7 @@ final class USBCaptureTests: XCTestCase {
         let frames = LatestScreenFrame(), image = try pixel(), epoch = frames.begin()
         frames.put(image, orientation: 0, presentationSeconds: 1, epoch: epoch)
         XCTAssertThrowsError(try frames.latestStamp())
-        let arrived = ProcessInfo.processInfo.systemUptime - 3_600
+        let arrived = max(1, ProcessInfo.processInfo.systemUptime - 3_600)
         frames.put(image, orientation: 1, presentationSeconds: 1, epoch: epoch, now: arrived)
         XCTAssertEqual(try frames.latestStamp().uptime, arrived)
         XCTAssertEqual(try frames.encoded().capture?.uptime, arrived, "Reading must not pretend an old sample just arrived")
@@ -423,7 +423,8 @@ final class USBCaptureTests: XCTestCase {
         frames.put(image, orientation: 1, presentationSeconds: 1, epoch: epoch)
         let bridge = try LiveDeviceBridgeRouter.make(frames: frames, captureActive: true, usb: nil, backgroundEnabled: false)
         _ = try await bridge.screenshot()
-        frames.put(image, orientation: 1, presentationSeconds: 2, epoch: epoch, now: ProcessInfo.processInfo.systemUptime - 3_600)
+        frames.put(image, orientation: 1, presentationSeconds: 2, epoch: epoch,
+                   now: max(1, ProcessInfo.processInfo.systemUptime - 3_600))
         let retained = try await bridge.screenshot()
         XCTAssertEqual(retained.capture?.sequence, 2)
         let replacement = frames.begin()
@@ -454,7 +455,7 @@ final class USBCaptureTests: XCTestCase {
     func testUSBInputAcceptsUnchangedFrameOlderThanAllFormerImageDeadlines() async throws {
         let frames = LatestScreenFrame(), epoch = frames.begin(), transport = USBSpy()
         frames.put(try pixel(), orientation: 1, presentationSeconds: 1, epoch: epoch,
-                   now: ProcessInfo.processInfo.systemUptime - 3_600)
+                   now: max(1, ProcessInfo.processInfo.systemUptime - 3_600))
         let health = USBTransportHealth(), token = UUID()
         health.begin(token); health.receivedPing(token)
         let context = try ScreenUSBExecutionContext(frames: frames, health: health, backgroundEnabled: false)
@@ -463,6 +464,7 @@ final class USBCaptureTests: XCTestCase {
         let bridge: any DeviceBridge = USBDeviceBridge(frames: frames, transport: transport, context: context)
         let frame = try await bridge.screenshot()
         try await bridge.acceptApproval(imageID: frame.id)
+        health.receivedPing(token)
         try await bridge.tap(x: 1, y: 2, imageID: frame.id)
         let commands = await transport.commands
         XCTAssertEqual(commands, ["TAP 1 2"])

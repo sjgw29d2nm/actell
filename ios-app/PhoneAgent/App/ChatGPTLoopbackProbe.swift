@@ -28,8 +28,21 @@ import Network
             let newListener = try NWListener(using: parameters)
             listener = newListener
             newListener.stateUpdateHandler = { [weak self] state in
-                guard case .ready = state else { return }
-                Task { @MainActor in self?.openBrowser(redirectEnabled: redirectEnabled, externalSafari: externalSafari, embeddedSafari: embeddedSafari) }
+                switch state {
+                case .ready:
+                    Task { @MainActor in
+                        guard let self, self.running else { return }
+                        self.stage = "监听就绪，正在打开浏览器"
+                        self.openBrowser(redirectEnabled: redirectEnabled, externalSafari: externalSafari, embeddedSafari: embeddedSafari)
+                    }
+                case .failed(let error):
+                    let reason = error.localizedDescription
+                    Task { @MainActor in self?.finish("本地浏览器回调实验：监听失败（\(reason)）") }
+                case .waiting(let error):
+                    let reason = error.localizedDescription
+                    Task { @MainActor in self?.stage = "监听等待：\(reason)" }
+                default: break
+                }
             }
             newListener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in self?.receive(connection, redirectEnabled: redirectEnabled) }

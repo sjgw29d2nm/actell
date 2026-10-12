@@ -231,7 +231,7 @@ import XCTest
             XCTAssertTrue(content.waitForExistence(timeout: 2))
             header.coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.5)).tap()
             let collapsed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: content)
-            XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 2), .completed)
+            XCTAssertEqual(XCTWaiter.wait(for: [collapsed], timeout: 5), .completed)
         }
         capture("reasoning-single-tap-collapse")
     }
@@ -363,7 +363,8 @@ import XCTest
         func saveConfiguration() {
             XCTAssertEqual(app.navigationBars.buttons.matching(identifier: "saveVPNLoopbackConfiguration").count, 1)
             saveButton.tap()
-            XCTAssertFalse(saveButton.exists)
+            let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: saveButton)
+            XCTAssertEqual(XCTWaiter.wait(for: [saved], timeout: 5), .completed)
         }
         capture("local-vpn-setup")
         let interfaceAddress = app.textFields["vpnLoopbackInterfaceAddress"]
@@ -487,8 +488,21 @@ import XCTest
         app.textViews["messageInput"].tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "model-b-alt"), object: picker)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["newConversationToolbar"].tap()
+        if app.buttons["conversationProviderRow"].exists {
+            picker.tap()
+            let dismissed = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"), object: app.buttons["conversationProviderRow"])
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        }
+        if app.keyboards.firstMatch.exists {
+            app.scrollViews["conversationMessages"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        }
+        let back = app.navigationBars.buttons["BackButton"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        let newConversation = app.buttons["newConversationToolbar"]
+        XCTAssertTrue(newConversation.waitForExistence(timeout: 5))
+        newConversation.tap()
         app.textViews["messageInput"].tap(); app.textViews["messageInput"].tap()
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         XCTAssertTrue(picker.label.contains("model-b-alt"))

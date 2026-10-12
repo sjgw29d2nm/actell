@@ -11,7 +11,7 @@ import XCTest
             plus.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             let item = app.descendants(matching: .any)[title].firstMatch
             XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription); item.tap()
-            let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "取消", "Close", "关闭"])).firstMatch
+            let cancel = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Cancel", "取消", "Close", "关闭"])).firstMatch
             XCTAssertTrue(cancel.waitForExistence(timeout: 8), app.debugDescription)
             capture(title + "-native-picker")
             cancel.tap()
@@ -53,17 +53,17 @@ import XCTest
         app.buttons["addAttachment"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let file = app.descendants(matching: .any)["添加文件"].firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 5)); file.tap()
-        let note = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
+        let note = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
         if !note.waitForExistence(timeout: 1) {
-            let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
+            let browse = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
             if browse.waitForExistence(timeout: 3) { browse.tap() }
-            let local = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
+            let local = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
             if local.waitForExistence(timeout: 3) { local.tap() }
-            let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
+            let folder = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
         XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription); note.tap()
-        let open = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "打开", "Done", "完成"])).firstMatch
+        let open = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Open", "打开", "Done", "完成"])).firstMatch
         if open.waitForExistence(timeout: 2) { open.tap() }
         XCTAssertTrue(app.scrollViews["draftAttachments"].waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertFalse(app.buttons["stopRun"].exists)
