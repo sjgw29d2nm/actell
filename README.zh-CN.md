@@ -1,8 +1,10 @@
-# iOS Use · PhoneAgent
+# 随办 · iPhone Agent
 
 [English](README.md) | 简体中文
 
-**Vibe Coding 项目，技术原型初期，用于思路分享。** PhoneAgent（随办）探索让 iPhone 上的 Agent 调用 CoreDevice 服务，获取屏幕画面并执行点击、拖动。当前默认使用外部 VPN 回环的免 ESP32 路线，也可选择 ESP32-S3 USB NCM 转发；尚不具备生产可用性或长期后台稳定性保证。
+[![CI](https://github.com/sjgw29d2nm/actell/actions/workflows/ios-ci.yml/badge.svg?branch=main)](https://github.com/sjgw29d2nm/actell/actions/workflows/ios-ci.yml)
+
+**面向 iPhone Agent 操控的早期技术原型，用于思路分享。** 随办（Actell）探索让 iPhone 上的 Agent 调用 CoreDevice 服务，获取屏幕画面并执行点击、拖动。当前默认使用外部 VPN 回环的免 ESP32 路线，也可选择 ESP32-S3 USB NCM 转发；尚不具备生产可用性或长期后台稳定性保证。
 
 https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
@@ -41,7 +43,7 @@ App 使用 [SwiftAgentKit](https://github.com/ayman3000/SwiftAgentKit)、[MacPaw
 
 - 独立安装 Rust，并运行 `rustup target add aarch64-apple-ios aarch64-apple-ios-sim` 安装 iOS target。脚本从 PATH 或标准 Cargo 安装位置查找 Rust，可用 `NCM_RUST_TOOLCHAIN` 显式选择工具链，不依赖旁边的项目目录。后端使用 `--locked` 和标准 Cargo 缓存（或 `CARGO_HOME` / `NCM_CARGO_HOME`），首次构建可下载依赖；缓存完备后可设置 `NCM_CARGO_OFFLINE=1` 离线构建。包使用 edition 2024，版本见 [Cargo.lock](ncm-dev/rust/Cargo.lock)。
 - 固件使用 ESP-IDF 5.5.5，可通过 `IDF_PATH`、`IDF_TOOLS_PATH` 指向已安装环境；组件版本由 [清单](firmware-device/main/idf_component.yml) 和锁文件固定。
-- Xcode 项目已提交；新增源文件后可运行 `python3 ios-app/scripts/generate_xcode_project.py` 重新生成。首次构建允许 Swift Package Manager 解析依赖；Xcode 构建阶段会生成当前平台的 Rust 静态库。
+- Xcode 项目已提交；应用显示名以 `ios-app/project.yml` 为准。生成脚本依赖 PyYAML（版本锁定在 `ios-app/scripts/requirements-qa.txt`）；未安装时运行 `python3 -m pip install 'PyYAML==6.0.2'`，新增源文件后再运行 `python3 ios-app/scripts/generate_xcode_project.py`。首次构建允许 Swift Package Manager 解析依赖；Xcode 构建阶段会生成当前平台的 Rust 静态库。
 
 ```sh
 # iPhoneOS 无签名构建；不会安装或修改签名
@@ -66,6 +68,8 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 ```
 
 协议测试使用回环网络；App 测试使用合成模型与临时存储，不能代替真实设备验收。UI 用例会向指定的独立模拟器添加测试图片和文件。核心协议、单次授权、会话隔离、未知结果不重放、checkpoint 迁移及停止释放覆盖保留在默认 target。
+
+GitHub Actions 在 Linux 上检查工程生成一致性、Swift 源语法、协议夹具和 USB Device 回环；在 Xcode 27 上执行无签名构建及模拟器核心／UI 测试。自动化结果见页面顶部 CI 状态。
 
 ## 依赖与来源
 

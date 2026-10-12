@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Generate the checked-in project with Python stdlib; no XcodeGen install needed."""
+"""Generate the checked-in project from project.yml; requires PyYAML, not XcodeGen."""
 from pathlib import Path
 import hashlib
 import json
 import os
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
+APP_DISPLAY_NAME = PROJECT_CONFIG["settings"]["base"]["APP_DISPLAY_NAME"]
 objects = {}
 
 
@@ -153,7 +156,7 @@ def generate():
                            buildPhases=phases, buildRules=[], dependencies=dependencies, packageProductDependencies=package_products))
     products_group = add("Products", "PBXGroup", name="Products", children=products, sourceTree="<group>")
     main_group = add("RootGroup", "PBXGroup", children=groups + [products_group], sourceTree="<group>")
-    common = dict(APP_DISPLAY_NAME="随办", SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="27.0", SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
+    common = dict(APP_DISPLAY_NAME=APP_DISPLAY_NAME, SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="27.0", SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
                   CLANG_ENABLE_MODULES="YES", CLANG_ENABLE_OBJC_ARC="YES", GCC_C_LANGUAGE_STANDARD="gnu17")
     project = add("Project", "PBXProject", attributes=dict(LastUpgradeCheck="2700", BuildIndependentTargetsInParallel="YES"),
                   buildConfigurationList=configs("Project", common), compatibilityVersion="Xcode 14.0", developmentRegion="en",

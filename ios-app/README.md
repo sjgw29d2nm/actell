@@ -10,7 +10,7 @@
 
 ## 构建
 
-使用已安装 Xcode 27，不更改本机签名。新增源文件后运行 `python3 ios-app/scripts/generate_xcode_project.py`（在仓库根目录）。构建缓存放 `.build/`，可使用已解析依赖的独立副本。
+使用已安装 Xcode 27，不更改本机签名。显示名以 `project.yml` 的 `settings.base.APP_DISPLAY_NAME` 为准；生成脚本依赖 PyYAML（版本锁定在 `scripts/requirements-qa.txt`），缺少时执行 `python3 -m pip install 'PyYAML==6.0.2'`，新增源文件后从仓库根目录运行 `python3 ios-app/scripts/generate_xcode_project.py`。构建缓存放 `.build/`，可使用已解析依赖的独立副本。
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \

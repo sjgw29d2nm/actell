@@ -1,0 +1,111 @@
+name: iOS CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-usb:
+    name: Source, project, and USB checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install source-check dependencies
+        run: |
+          python -m venv .build/qa-venv
+          .build/qa-venv/bin/python -m pip install -r ios-app/scripts/requirements-qa.txt
+
+      - name: Check generated Xcode project is current
+        run: |
+          .build/qa-venv/bin/python ios-app/scripts/generate_xcode_project.py
+          git diff --exit-code -- ios-app/PhoneAgent.xcodeproj
+          test -z "$(git status --porcelain -- ios-app/PhoneAgent.xcodeproj)"
+
+      - name: Check Swift source and project configuration
+        run: .build/qa-venv/bin/python ios-app/scripts/check_source.py
+
+      - name: Check USB wire contract
+        run: .build/qa-venv/bin/python ios-app/scripts/test_contract.py
+
+      - name: Check USB Device protocol and TCP loopback
+        run: CC=clang bash tools/test_usb_device.sh
+
+      - name: Check patch formatting
+        run: git diff --check
+
+  ios-build-and-tests:
+    name: iOS build and simulator tests
+    needs: source-and-usb
+    runs-on: xcode-27
+    timeout-minutes: 240
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode and prepare Rust targets
+        run: |
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" toolchain install stable --profile minimal
+          "$HOME/.cargo/bin/rustup" default stable
+          "$HOME/.cargo/bin/rustup" target add aarch64-apple-ios aarch64-apple-ios-sim
+          xcodebuild -version
+
+      - name: Resolve pinned Swift packages
+        run: |
+          mkdir -p .build/SourcePackages
+          xcodebuild -resolvePackageDependencies \
+            -project ios-app/PhoneAgent.xcodeproj \
+            -scheme PhoneAgent \
+            -clonedSourcePackagesDirPath .build/SourcePackages
+
+      - name: Build unsigned iPhoneOS app
+        run: |
+          xcodebuild \
+            -project ios-app/PhoneAgent.xcodeproj \
+            -scheme PhoneAgent \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            -disableAutomaticPackageResolution -skipPackageUpdates \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Select an iOS 27 iPhone simulator
+        id: simulator
+        run: |
+          simulator_id="$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices=json.load(sys.stdin)["devices"]; candidates=[device["udid"] for runtime, entries in devices.items() if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-27") for device in entries if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; print(candidates[0] if candidates else "")')"
+          if [ -z "$simulator_id" ]; then
+            echo 'No available iOS 27 iPhone simulator was found.' >&2
+            exit 1
+          fi
+          echo "udid=$simulator_id" >> "$GITHUB_OUTPUT"
+
+      - name: Boot simulator for UI fixtures
+        run: |
+          xcrun simctl boot '${{ steps.simulator.outputs.udid }}' || true
+          xcrun simctl bootstatus '${{ steps.simulator.outputs.udid }}' -b
+
+      - name: Run core and UI tests
+        env:
+          RUN_UI_TESTS: '1'
+        run: bash ios-app/scripts/test_core.sh '${{ steps.simulator.outputs.udid }}'

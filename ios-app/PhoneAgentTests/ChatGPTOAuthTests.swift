@@ -523,7 +523,10 @@ extension ChatGPTOAuthTests {
             try await manager.report(.planAuthorized, account: account)
             SubscriptionWireFixture.reset(Data(#"{"error":{"message":"Bearer SECRET user content","code":"unsupported_parameter","param":"tools[0].SECRET"}}"#.utf8), status: status)
             // Reset only this in-memory mock account between admission cases.
-            do { _ = try await p.complete(.init(model: "fixture", messages: [.user("task")])) ; XCTFail("Admission accepted") } catch {}
+            do {
+                _ = try await p.complete(.init(model: "fixture", messages: [.user("task")]))
+                XCTFail("Admission accepted")
+            } catch {}
             let message = AgentViewModel.runFailure(AgentError.providerError("raw SECRET wrapper"), provider: p)
             XCTAssertTrue(message.contains("HTTP \(status)"), message)
             XCTAssertTrue(message.contains("unsupported_parameter"), message)

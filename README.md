@@ -1,8 +1,10 @@
-# iOS Use · PhoneAgent
+# Suiban (随办) · iPhone Agent
 
 English | [简体中文](README.zh-CN.md)
 
-**A vibe-coded project in its early technical prototype stage, shared to explore ideas.** PhoneAgent (随办) explores how an agent running on an iPhone can call CoreDevice services to capture the screen and perform taps and drags. The current default uses an external VPN loopback route without an ESP32; ESP32-S3 USB NCM forwarding is also available. Production readiness and reliable long-running background execution are not guaranteed.
+[![CI](https://github.com/sjgw29d2nm/actell/actions/workflows/ios-ci.yml/badge.svg?branch=main)](https://github.com/sjgw29d2nm/actell/actions/workflows/ios-ci.yml)
+
+**An early technical prototype for exploring iPhone agent control.** Suiban (随办) explores how an agent running on an iPhone can call CoreDevice services to capture the screen and perform taps and drags. The current default uses an external VPN loopback route without an ESP32; ESP32-S3 USB NCM forwarding is also available. Production readiness and reliable long-running background execution are not guaranteed.
 
 https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 
@@ -43,7 +45,7 @@ Run all commands below from the repository root. The scripts reuse a local toolc
 
 - Install Rust with the `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets (`rustup target add aarch64-apple-ios aarch64-apple-ios-sim`). The script discovers Rust through PATH or the standard Cargo installation; `NCM_RUST_TOOLCHAIN` optionally selects an installed toolchain. It does not depend on a sibling project. Backend builds use `--locked` and the standard Cargo cache (or `CARGO_HOME` / `NCM_CARGO_HOME`); the first build can download dependencies. Set `NCM_CARGO_OFFLINE=1` for cached offline builds. The package uses edition 2024; versions are in [Cargo.lock](ncm-dev/rust/Cargo.lock).
 - Firmware uses ESP-IDF 5.5.5. Set `IDF_PATH` and `IDF_TOOLS_PATH` to an installed environment as needed. Component versions are pinned by the [manifest](firmware-device/main/idf_component.yml) and lockfile.
-- The Xcode project is checked in. After adding source files, regenerate it with `python3 ios-app/scripts/generate_xcode_project.py`. Allow Swift Package Manager to resolve dependencies on the first build. An Xcode build phase generates the Rust static library for the current platform.
+- The Xcode project is checked in; `ios-app/project.yml` is the source of truth for the app display name. The generator requires PyYAML (pinned in `ios-app/scripts/requirements-qa.txt`); if it is missing, install it with `python3 -m pip install 'PyYAML==6.0.2'`, then run `python3 ios-app/scripts/generate_xcode_project.py` after adding source files. Swift Package Manager may resolve dependencies on the first build; Xcode builds the Rust static library for the selected platform.
 
 ```sh
 # Unsigned iPhoneOS build; does not install or change signing
@@ -68,6 +70,8 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <isolated-simulator-UDID>
 ```
 
 Protocol tests use loopback networking. App tests use synthetic models and temporary storage, and do not replace physical-device acceptance testing. UI tests add test images and files to the specified isolated simulator. Coverage for core protocols, one-time authorization, session isolation, no replay of uncertain outcomes, checkpoint migration, and stop/release behavior remains in the default target.
+
+GitHub Actions checks project generation, Swift source grammar, protocol fixtures, and USB Device loopback on Linux, then runs the unsigned build plus core and UI simulator tests on Xcode 27. The current result is shown by the CI badge above.
 
 ## Dependencies and sources
 
