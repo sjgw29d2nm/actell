@@ -27,5 +27,6 @@ with tempfile.TemporaryDirectory(prefix="phoneagent-synthetic-picker-") as tempo
     subprocess.run(["rsync", "--archive", f"{fixtures}/", f"{folder}/"], check=True)
     image = Path(temporary) / "synthetic-picker.png"; image.write_bytes(png)
     simctl("addmedia", device, str(image))
+simctl("launch", device, "com.apple.DocumentsApp")
 simctl("launch", device, "com.apple.mobileslideshow")
-print("Synthetic picker fixtures prepared in the selected simulator.")
+print("Synthetic Files and Photos picker fixtures prepared in the selected simulator.")

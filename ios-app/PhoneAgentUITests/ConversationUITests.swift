@@ -492,15 +492,15 @@ import XCTest
         app.buttons["conversationModelRow"].tap()
         app.buttons["model-b-alt"].tap()
         XCTAssertEqual(app.buttons["conversationModelRow"].value as? String, "model-b-alt")
-        app.textViews["messageInput"].tap()
         let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "model-b-alt"), object: picker)
         XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
-        if app.buttons["conversationProviderRow"].exists {
-            app.buttons["closeConversationModelSettings"].tap()
-            let dismissed = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "exists == false"), object: app.buttons["conversationProviderRow"])
-            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
-        }
+        XCTAssertTrue(app.buttons["conversationProviderRow"].waitForExistence(timeout: 5), app.debugDescription)
+        let closeSettings = app.buttons["closeConversationModelSettings"]
+        XCTAssertTrue(closeSettings.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(closeSettings.isHittable, app.debugDescription)
+        closeSettings.tap()
+        let pickerReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: picker)
+        XCTAssertEqual(XCTWaiter.wait(for: [pickerReady], timeout: 5), .completed)
         let back = app.navigationBars.buttons["BackButton"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()

@@ -60,7 +60,7 @@ import XCTest
         XCTAssertTrue(file.waitForExistence(timeout: 5)); file.tap()
         let note = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
         if !note.waitForExistence(timeout: 1) {
-            let browse = app.tabBars.buttons["Browse"]
+            let browse = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
             XCTAssertTrue(browse.waitForExistence(timeout: 5), app.debugDescription); browse.tap()
             let local = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
             XCTAssertTrue(local.waitForExistence(timeout: 5), app.debugDescription); local.tap()
