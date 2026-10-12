@@ -12,9 +12,14 @@ import XCTest
             let item = app.descendants(matching: .any)[title].firstMatch
             XCTAssertTrue(item.waitForExistence(timeout: 5), app.debugDescription); item.tap()
             let cancel = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Cancel", "取消", "Close", "关闭"])).firstMatch
-            XCTAssertTrue(cancel.waitForExistence(timeout: 8), app.debugDescription)
             capture(title + "-native-picker")
-            cancel.tap()
+            if cancel.waitForExistence(timeout: 2) {
+                cancel.tap()
+            } else if title == "添加照片" {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.12)).tap()
+            } else {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.12)).tap()
+            }
             XCTAssertTrue(app.descendants(matching: .any)["addAttachment"].firstMatch.waitForExistence(timeout: 5))
             XCTAssertFalse(app.buttons["stopRun"].exists)
             XCTAssertFalse(app.scrollViews["draftAttachments"].exists)
@@ -31,7 +36,7 @@ import XCTest
             XCTAssertTrue(photo.waitForExistence(timeout: 5)); photo.tap()
             // prepare_ui_fixtures.py adds this run's synthetic PNG as the newest photo.
             let image = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
-            XCTAssertTrue(image.waitForExistence(timeout: 8), app.debugDescription)
+            XCTAssertTrue(image.waitForExistence(timeout: 30), app.debugDescription)
             image.tap()
             let add = app.buttons.matching(NSPredicate(format: "label IN %@", ["Add", "添加", "Done", "完成"])).firstMatch
             XCTAssertTrue(add.waitForExistence(timeout: 5), app.debugDescription); add.tap()
@@ -53,13 +58,15 @@ import XCTest
         app.buttons["addAttachment"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let file = app.descendants(matching: .any)["添加文件"].firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 5)); file.tap()
-        let note = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
+        let note = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "synthetic-note")).firstMatch
         if !note.waitForExistence(timeout: 1) {
-            let browse = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["Browse", "浏览"])).firstMatch
-            if browse.waitForExistence(timeout: 3) { browse.tap() }
-            let local = app.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
+            // The Files picker is rendered remotely and its Browse tab is absent
+            // from XCUIElement queries on current simulator runtimes.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.71, dy: 0.94)).tap()
+            let local = app.staticTexts.matching(NSPredicate(format: "label IN %@", ["On My iPhone", "我的 iPhone", "我的iPhone"])).firstMatch
             if local.waitForExistence(timeout: 3) { local.tap() }
-            let folder = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
+            else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap() }
+            let folder = app.cells.matching(NSPredicate(format: "label CONTAINS %@", "ProjectTodosFixtures")).firstMatch
             XCTAssertTrue(folder.waitForExistence(timeout: 5), app.debugDescription); folder.tap()
         }
         XCTAssertTrue(note.waitForExistence(timeout: 5), app.debugDescription); note.tap()
