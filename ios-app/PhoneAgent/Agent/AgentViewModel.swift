@@ -547,7 +547,7 @@ struct AgentRunServices {
         guard !running else { return reject("running", "此会话已有任务正在执行") }
         guard !stopping else { return reject("stopping", "此会话的上一任务正在停止，请稍后重试") }
         guard !appOwner.clearingAssets else { return reject("clearingAssets", "正在清理文件，请稍后重试") }
-        guard foreground || (allowBackgroundStart && commandCanStart) else { return reject("notForeground", "执言尚未进入前台，任务未开始") }
+        guard foreground || (allowBackgroundStart && commandCanStart) else { return reject("notForeground", "随办尚未进入前台，任务未开始") }
         guard protectedDataAvailable else { return reject("protectedData", "请解锁设备后执行任务") }
         guard listenerTask == nil else { return reject("listenerBusy", "设备连接操作尚未结束，请稍后重试") }
         guard primarySessionID == conversationID, let session = sessions.conversation(conversationID) else {

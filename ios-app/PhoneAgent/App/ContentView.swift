@@ -25,8 +25,10 @@ struct ContentView: View {
                 if sessions.conversations.isEmpty {
                     VStack(spacing: 22) {
                         Spacer()
-                        Image(systemName: "sparkle").font(.system(size: 46, weight: .light)).foregroundStyle(.blue)
-                            .frame(width: 98, height: 98).background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 30))
+                        Image("BrandMark").resizable().scaledToFit()
+                            .frame(width: 98, height: 98)
+                            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                            .accessibilityLabel("随办")
                         VStack(spacing: 8) {
                             Text("从一个想法开始").font(.title2.bold())
                             Text("与 Agent 对话，查看执行过程，\n在需要时确认下一步。").multilineTextAlignment(.center).foregroundStyle(.secondary)

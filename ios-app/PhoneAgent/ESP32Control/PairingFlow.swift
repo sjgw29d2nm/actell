@@ -123,7 +123,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         guard registeredBackgroundTask else { message = "系统配对后台任务未注册，请重新打开 App"; return }
         guard #available(iOS 26.0, *) else { message = "系统交互配对需要 iOS 26 或更新版本的持续后台任务"; return }
         generation = UUID(); running = true; pairingActive = true; message = "正在申请配对后台任务，请等待入口就绪"
-        let request = BGContinuedProcessingTaskRequest(identifier: Self.taskID, title: "PhoneAgent 配对", subtitle: "在系统设置中完成授权")
+        let request = BGContinuedProcessingTaskRequest(identifier: Self.taskID, title: "随办 配对", subtitle: "在系统设置中完成授权")
         request.strategy = .fail
         do { try BGTaskScheduler.shared.submit(request) }
         catch { running = false; pairingActive = false; message = "系统未批准后台任务，请保持 App 在前台后重试" }
@@ -165,7 +165,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func netServiceDidPublish(_ sender: NetService) {
         guard service === sender else { return }
-        message = "打开设置 → 隐私与安全性 → 开发者模式，选择与「执言」配对"
+        message = "打开设置 → 隐私与安全性 → 开发者模式，选择与「随办」配对"
     }
     func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
         guard service === sender else { return }

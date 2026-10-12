@@ -4,19 +4,19 @@
     "••••••••" : {
 
     },
-    "A task draft is waiting for your confirmation in Zhiyan. It has not started." : {
+    "A task draft is waiting for your confirmation in the app. It has not started." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task draft is waiting for your confirmation in Zhiyan. It has not started."
+            "value" : "A task draft is waiting for your confirmation in the app. It has not started."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有任务草稿等待你在执言中确认，尚未开始。"
+            "value" : "有任务草稿等待你在随办中确认，尚未开始。"
           }
         }
       }
@@ -38,19 +38,19 @@
         }
       }
     },
-    "A task is waiting for your approval in Zhiyan." : {
+    "A task is waiting for your approval in the app." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task is waiting for your approval in Zhiyan."
+            "value" : "A task is waiting for your approval in the app."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有任务等待你在执言中批准动作。"
+            "value" : "有任务等待你在随办中批准动作。"
           }
         }
       }
@@ -83,19 +83,19 @@
         }
       }
     },
-    "Draft saved. Review it in Zhiyan and tap Confirm and start. If another task is active, this draft will wait." : {
+    "Draft saved. Review it in the app and tap Confirm and start. If another task is active, this draft will wait." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Draft saved. Review it in Zhiyan and tap Confirm and start. If another task is active, this draft will wait."
+            "value" : "Draft saved. Review it in the app and tap Confirm and start. If another task is active, this draft will wait."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "草稿已保存。请在执言核对后点击“确认开始”。如有任务正在运行，草稿会等待。"
+            "value" : "草稿已保存。请在随办核对后点击“确认开始”。如有任务正在运行，草稿会等待。"
           }
         }
       }
@@ -202,19 +202,19 @@
         }
       }
     },
-    "Save a task draft and open Zhiyan for confirmation. This does not start the agent." : {
+    "Save a task draft and open the app for confirmation. This does not start the agent." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Save a task draft and open Zhiyan for confirmation. This does not start the agent."
+            "value" : "Save a task draft and open the app for confirmation. This does not start the agent."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "保存任务草稿并打开执言等待确认。不会自动启动 Agent。"
+            "value" : "保存任务草稿并打开随办等待确认。不会自动启动 Agent。"
           }
         }
       }
@@ -253,19 +253,19 @@
         }
       }
     },
-    "Stop the current run through Zhiyan. Actions already sent may have happened." : {
+    "Stop the current run through the app. Actions already sent may have happened." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stop the current run through Zhiyan. Actions already sent may have happened."
+            "value" : "Stop the current run through the app. Actions already sent may have happened."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通过执言停止当前运行。已发出的动作可能已经执行。"
+            "value" : "通过随办停止当前运行。已发出的动作可能已经执行。"
           }
         }
       }
@@ -304,13 +304,13 @@
         }
       }
     },
-    "Task received. It will start when Zhiyan is active." : {
+    "Task received. It will start when the app is active." : {
       "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务已接收，执言进入前台后自动开始。"
+            "value" : "任务已接收，随办进入前台后自动开始。"
           }
         }
       }
@@ -360,30 +360,30 @@
         }
       }
     },
-    "The draft could not be saved. Open Zhiyan and check storage." : {
+    "The draft could not be saved. Open the app and check storage." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The draft could not be saved. Open Zhiyan and check storage."
+            "value" : "The draft could not be saved. Open the app and check storage."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "草稿未能保存，请打开执言检查存储。"
+            "value" : "草稿未能保存，请打开随办检查存储。"
           }
         }
       }
     },
-    "The task could not start. Open Zhiyan and check the task and provider settings." : {
+    "The task could not start. Open the app and check the task and provider settings." : {
       "extractionState" : "stale",
       "localizations" : {
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务未能开始，请打开执言检查任务和服务商设置。"
+            "value" : "任务未能开始，请打开随办检查任务和服务商设置。"
           }
         }
       }
@@ -425,19 +425,19 @@
     "USB NCM" : {
 
     },
-    "What would you like Zhiyan to do?" : {
+    "What would you like the app to do?" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "What would you like Zhiyan to do?"
+            "value" : "What would you like the app to do?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "你想让执言做什么？"
+            "value" : "你想让随办做什么？"
           }
         }
       }

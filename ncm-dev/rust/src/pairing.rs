@@ -33,8 +33,8 @@ async fn run(
     entry: Arc<Entry>,
 ) -> Result<(), idevice::IdeviceError> {
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).await?;
-    let mut controller = RpPairingFile::generate("执言");
-    let mut info = PairableHostInfo::generate("执言", "Mac17,7");
+    let mut controller = RpPairingFile::generate("随办");
+    let mut info = PairableHostInfo::generate("随办", "Mac17,7");
     info.identifier = controller.identifier.clone();
     info.udid = uuid::Uuid::new_v4().to_string();
     let txt: HashMap<_, _> = info

@@ -49,7 +49,7 @@ import UIKit
         }
     }
     private nonisolated static func submitRequest(identifier: String) async throws {
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "PhoneAgent 正在处理任务", subtitle: "等待实际响应；可随时取消")
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "随办 正在处理任务", subtitle: "等待实际响应；可随时取消")
         request.strategy = .fail
         request.requiredResources = [] // CPU/network only; no GPU entitlement.
         // iOS 27's asynchronous API reports errors missed by deprecated submit.

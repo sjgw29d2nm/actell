@@ -42,7 +42,7 @@ import AppIntents
         let id = model.createConversation(mode: .live)
         model.setForeground(false)
         XCTAssertFalse(model.send("任务", in: id, cloudConsent: true))
-        XCTAssertEqual(model.errorMessage, "执言尚未进入前台，任务未开始")
+        XCTAssertEqual(model.errorMessage, "随办尚未进入前台，任务未开始")
         XCTAssertNil(model.currentRun)
     }
     func testDirectExecuteInitializesDefaultProviderWithoutOpeningConversation() async throws {

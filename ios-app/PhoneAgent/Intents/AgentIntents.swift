@@ -10,7 +10,7 @@ struct PrepareAgentTaskIntent: LiveActivityIntent, TargetContentProvidingIntent 
     @available(iOS 26.0, *) static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
     @available(iOS 27.0, *) static var allowedExecutionTargets: IntentExecutionTargets { .main }
 
-    @Parameter(title: "Task", requestValueDialog: "What would you like Zhiyan to do?")
+    @Parameter(title: "Task", requestValueDialog: "What would you like the app to do?")
     var task: String
 
     static var parameterSummary: some ParameterSummary { Summary("Execute a task: \(\.$task)") }
@@ -69,7 +69,7 @@ struct AgentTaskStatusIntent: AppIntent {
 
 struct StopAgentTaskIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop the current task"
-    static let description = IntentDescription("Stop the current run through Zhiyan. Actions already sent may have happened.")
+    static let description = IntentDescription("Stop the current task. Actions already sent may have happened.")
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
     @available(iOS 26.0, *) static var supportedModes: IntentModes { .background }
     @available(iOS 27.0, *) static var allowedExecutionTargets: IntentExecutionTargets { .main }

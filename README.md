@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-**A vibe-coded project in its early technical prototype stage, shared to explore ideas.** PhoneAgent (执言) explores how an agent running on an iPhone can call CoreDevice services to capture the screen and perform taps and drags. The current default uses an external VPN loopback route without an ESP32; ESP32-S3 USB NCM forwarding is also available. Production readiness and reliable long-running background execution are not guaranteed.
+**A vibe-coded project in its early technical prototype stage, shared to explore ideas.** PhoneAgent (随办) explores how an agent running on an iPhone can call CoreDevice services to capture the screen and perform taps and drags. The current default uses an external VPN loopback route without an ESP32; ESP32-S3 USB NCM forwarding is also available. Production readiness and reliable long-running background execution are not guaranteed.
 
 https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-**Vibe Coding 项目，技术原型初期，用于思路分享。** PhoneAgent（执言）探索让 iPhone 上的 Agent 调用 CoreDevice 服务，获取屏幕画面并执行点击、拖动。当前默认使用外部 VPN 回环的免 ESP32 路线，也可选择 ESP32-S3 USB NCM 转发；尚不具备生产可用性或长期后台稳定性保证。
+**Vibe Coding 项目，技术原型初期，用于思路分享。** PhoneAgent（随办）探索让 iPhone 上的 Agent 调用 CoreDevice 服务，获取屏幕画面并执行点击、拖动。当前默认使用外部 VPN 回环的免 ESP32 路线，也可选择 ESP32-S3 USB NCM 转发；尚不具备生产可用性或长期后台稳定性保证。
 
 https://github.com/user-attachments/assets/2aefc1a7-bdf1-42e7-83b9-51bd879256c8
 

@@ -250,7 +250,10 @@ struct ConversationView: View {
     }
     private func welcome(_ mode: RunMode) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.blue).padding(.top, 34)
+            Image("BrandMark").resizable().scaledToFit()
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .padding(.top, 34).accessibilityLabel("随办")
             Text("有什么可以一起完成？").font(.title2.bold())
             Text(mode == .demo ? "这个会话使用固定脚本，带你走一遍查看屏幕、确认点击和检查结果的流程。" : "描述你的问题或目标。Agent 的回复和每次工具执行都会保留在这里。")
                 .foregroundStyle(.secondary)

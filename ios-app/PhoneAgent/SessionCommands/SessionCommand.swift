@@ -38,9 +38,9 @@ enum SessionCommandError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executionFailed(let reason): return reason
-        case .startFailed: return String(localized: "The task could not start. Open Zhiyan and check the task and provider settings.")
+        case .startFailed: return String(localized: "The task could not start. Open the app and check the task and provider settings.")
         case .invalidTask: return String(localized: "Enter a task of 1–2,000 characters.")
-        case .unavailableStorage: return String(localized: "The draft could not be saved. Open Zhiyan and check storage.")
+        case .unavailableStorage: return String(localized: "The draft could not be saved. Open the app and check storage.")
         case .missingSession: return String(localized: "This draft is no longer available.")
         case .conflictingCommand: return String(localized: "This request identifier has already been used.")
         }
@@ -52,9 +52,9 @@ enum SessionPublicStatus: String, Sendable {
     var message: String {
         switch self {
         case .idle: return String(localized: "No task is currently running.")
-        case .pendingConfirmation: return String(localized: "A task draft is waiting for your confirmation in Zhiyan. It has not started.")
+        case .pendingConfirmation: return String(localized: "A task draft is waiting for your confirmation in the app. It has not started.")
         case .running: return String(localized: "A task is running.")
-        case .awaitingApproval: return String(localized: "A task is waiting for your approval in Zhiyan.")
+        case .awaitingApproval: return String(localized: "A task is waiting for your approval in the app.")
         case .stopping: return String(localized: "The current task is stopping.")
         }
     }

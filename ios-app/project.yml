@@ -48,7 +48,7 @@ targets:
         INFOPLIST_FILE: PhoneAgent/Info.plist
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: PhoneAgent/Info.plist
-        INFOPLIST_KEY_CFBundleDisplayName: 执言
+        INFOPLIST_KEY_CFBundleDisplayName: 随办
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your explicitly paired development bridge while this app is open.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -84,7 +84,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ja1chen.PhoneAgent.LiveActivity
         INFOPLIST_FILE: PhoneAgentLiveActivity/Info.plist
-        INFOPLIST_KEY_CFBundleDisplayName: Phone Agent Status
+        INFOPLIST_KEY_CFBundleDisplayName: 随办
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
   PhoneAgentTests:
