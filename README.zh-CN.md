@@ -69,7 +69,7 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <隔离模拟器-UDID>
 
 协议测试使用回环网络；App 测试使用合成模型与临时存储，不能代替真实设备验收。UI 用例会向指定的独立模拟器添加测试图片和文件。核心协议、单次授权、会话隔离、未知结果不重放、checkpoint 迁移及停止释放覆盖保留在默认 target。
 
-GitHub Actions 在 Linux 上检查工程生成一致性、Swift 源语法、协议夹具和 USB Device 回环；在 Xcode 27 上执行无签名构建及模拟器核心／UI 测试。自动化结果见页面顶部 CI 状态。
+GitHub Actions 在 Linux 上检查工程生成一致性、Swift 源语法和协议夹具；在 Xcode 27 macOS runner 上运行 USB Device 回环、无签名构建及模拟器核心／UI 测试。自动化结果见页面顶部 CI 状态。
 
 ## 依赖与来源
 

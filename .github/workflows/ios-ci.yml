@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  source-and-usb:
-    name: Source, project, and USB checks
+  source-and-project:
+    name: Source and project checks
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -44,20 +44,20 @@ jobs:
       - name: Check USB wire contract
         run: .build/qa-venv/bin/python ios-app/scripts/test_contract.py
 
-      - name: Check USB Device protocol and TCP loopback
-        run: CC=clang bash tools/test_usb_device.sh
-
       - name: Check patch formatting
         run: git diff --check
 
   ios-build-and-tests:
     name: iOS build and simulator tests
-    needs: source-and-usb
+    needs: source-and-project
     runs-on: xcode-27
     timeout-minutes: 240
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check USB Device protocol and TCP loopback
+        run: CC=clang bash tools/test_usb_device.sh
 
       - name: Select Xcode and prepare Rust targets
         run: |

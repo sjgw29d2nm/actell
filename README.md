@@ -71,7 +71,7 @@ RUN_UI_TESTS=1 bash ios-app/scripts/test_core.sh <isolated-simulator-UDID>
 
 Protocol tests use loopback networking. App tests use synthetic models and temporary storage, and do not replace physical-device acceptance testing. UI tests add test images and files to the specified isolated simulator. Coverage for core protocols, one-time authorization, session isolation, no replay of uncertain outcomes, checkpoint migration, and stop/release behavior remains in the default target.
 
-GitHub Actions checks project generation, Swift source grammar, protocol fixtures, and USB Device loopback on Linux, then runs the unsigned build plus core and UI simulator tests on Xcode 27. The current result is shown by the CI badge above.
+GitHub Actions checks project generation, Swift source grammar, and protocol fixtures on Linux; the Xcode 27 macOS runner runs USB Device loopback, the unsigned build, and core plus UI simulator tests. The current result is shown by the CI badge above.
 
 ## Dependencies and sources
 
