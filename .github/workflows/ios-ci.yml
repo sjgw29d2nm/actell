@@ -109,3 +109,14 @@ jobs:
         env:
           RUN_UI_TESTS: '1'
         run: bash ios-app/scripts/test_core.sh '${{ steps.simulator.outputs.udid }}'
+
+      - name: Upload failed iOS test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-test-diagnostics
+          path: |
+            .build/validation/core.*/test.log
+            .build/validation/core.*/Tests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

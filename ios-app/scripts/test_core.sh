@@ -15,6 +15,10 @@ xcodebuild -project "$repo_root/ios-app/PhoneAgent.xcodeproj" -scheme PhoneAgent
   -clonedSourcePackagesDirPath "$repo_root/.build/SourcePackages" \
   -disableAutomaticPackageResolution -skipPackageUpdates -parallel-testing-enabled NO \
   -resultBundlePath "$result_dir/Tests.xcresult" "${selection[@]}" \
-  CODE_SIGNING_ALLOWED=NO test > "$result_dir/test.log" 2>&1 || { tail -50 "$result_dir/test.log"; exit 1; }
+  CODE_SIGNING_ALLOWED=NO test > "$result_dir/test.log" 2>&1 || {
+    grep -n -i -E -C 3 'error:|failed|timed out|XCTAssert|Assertion Failure|Failed to' "$result_dir/test.log" || true
+    tail -50 "$result_dir/test.log"
+    exit 1
+  }
 tail -12 "$result_dir/test.log"
 echo "Evidence: $result_dir"
