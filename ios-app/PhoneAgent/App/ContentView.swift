@@ -36,11 +36,16 @@ struct ContentView: View {
                         }
                         if visible.isEmpty { ContentUnavailableView.search(text: search) }
                     }.listStyle(.plain)
+                        .searchable(text: $search, prompt: "搜索会话")
                 }
             }
             .navigationTitle("会话")
-            .searchable(text: $search, prompt: "搜索会话")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Image("BrandLogo").renderingMode(.template).resizable().scaledToFit()
+                        .frame(width: 78, height: 26).foregroundStyle(.primary).accessibilityLabel("随办")
+                }
                 ToolbarItem(placement: .topBarLeading) { Button { panel = .settings } label: { Image(systemName: "gear") }.accessibilityLabel("设置") }
                 ToolbarItem(placement: .topBarTrailing) { Button(action: createConversation) { Image(systemName: "square.and.pencil") }.accessibilityLabel("新建会话").accessibilityIdentifier("newConversationToolbar") }
             }
@@ -88,33 +93,22 @@ struct ContentView: View {
     private var emptyState: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(spacing: 26) {
-                    Image("BrandMark").resizable().scaledToFit()
-                        .frame(width: 88, height: 88)
-                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                        .shadow(color: .blue.opacity(0.14), radius: 18, y: 8)
-                        .accessibilityLabel("随办")
-                    VStack(spacing: 10) {
-                        Text("把想做的事，交给随办").font(.title2.bold())
-                        Text("说出你的目标，一起把事情办好。\n对话和执行进展都会保留在这里。")
-                            .font(.subheadline).multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary).lineSpacing(4)
+                VStack(alignment: .leading, spacing: 30) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("今天，\n想办点什么？").font(.system(.largeTitle, design: .rounded).weight(.bold))
+                        Text("说出你的目标，随办帮你完成。")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
                     Button(action: createConversation) {
-                        Label("新建会话", systemImage: "plus")
-                            .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+                        HStack(spacing: 12) { Text("开始对话"); Image(systemName: "arrow.right") }
+                            .font(.headline).padding(.horizontal, 12).padding(.vertical, 4)
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
                     .accessibilityIdentifier("newConversation")
-                    HStack(spacing: 12) {
-                        VStack(spacing: 7) { Image(systemName: "bubble.left"); Text("说出目标") }.frame(maxWidth: .infinity)
-                        VStack(spacing: 7) { Image(systemName: "list.bullet"); Text("查看进展") }.frame(maxWidth: .infinity)
-                        VStack(spacing: 7) { Image(systemName: "checkmark.circle"); Text("确认结果") }.frame(maxWidth: .infinity)
-                    }.font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 28).padding(.vertical, 40)
-                .frame(maxWidth: 460)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                .padding(.horizontal, 28).padding(.top, 72).padding(.bottom, 40)
+                .frame(maxWidth: 460, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
             }
         }
     }

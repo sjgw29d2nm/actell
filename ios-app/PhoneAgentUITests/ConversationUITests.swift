@@ -467,7 +467,7 @@ import XCTest
         app.buttons["saveProvider"].tap()
         XCTAssertTrue(app.staticTexts[name].waitForExistence(timeout: 5))
     }
-    func testMultipleProvidersAndSessionModelSelection() {
+    func testMultipleProvidersAndDefaultModelSelectionInSettings() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-composer-models"]
@@ -476,54 +476,46 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Fixture One"].exists)
         XCTAssertTrue(app.staticTexts["Fixture Two"].exists)
         capture("providers")
-        closeProviders(app); app.buttons["newConversation"].tap()
-        let picker = app.buttons["conversationModelPicker"]
-        XCTAssertFalse(picker.exists)
-        app.textViews["messageInput"].tap()
-        app.textViews["messageInput"].tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5)); picker.tap()
-        app.buttons["conversationProviderRow"].tap()
-        app.buttons["Fixture Two"].tap()
-        XCTAssertEqual(app.buttons["conversationProviderRow"].value as? String, "Fixture Two")
-        XCTAssertEqual(app.buttons["conversationModelRow"].value as? String, "model-b")
-        XCTAssertEqual(app.buttons["conversationReasoningEffort"].value as? String, "服务商默认")
+        app.navigationBars["供应商"].buttons["BackButton"].tap()
+        let providerRow = app.buttons["settingsProviderRow"]
+        let modelRow = app.buttons["settingsModelRow"]
+        let effortRow = app.buttons["settingsReasoningEffort"]
+        XCTAssertTrue(providerRow.waitForExistence(timeout: 5))
+        providerRow.tap(); app.buttons["Fixture Two"].tap()
+        XCTAssertEqual(providerRow.value as? String, "Fixture Two")
+        XCTAssertEqual(modelRow.value as? String, "model-b")
+        XCTAssertEqual(effortRow.value as? String, "服务商默认")
         XCTAssertFalse(app.buttons["model-b-alt"].exists)
-        capture("conversation-model-settings")
-        app.buttons["conversationModelRow"].tap()
-        app.buttons["model-b-alt"].tap()
-        XCTAssertEqual(app.buttons["conversationModelRow"].value as? String, "model-b-alt")
-        let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "model-b-alt"), object: picker)
-        XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
-        XCTAssertTrue(app.buttons["conversationProviderRow"].waitForExistence(timeout: 5), app.debugDescription)
-        let closeSettings = app.buttons["closeConversationModelSettings"]
-        XCTAssertTrue(closeSettings.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(closeSettings.isHittable, app.debugDescription)
-        closeSettings.tap()
-        let pickerReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: picker)
-        XCTAssertEqual(XCTWaiter.wait(for: [pickerReady], timeout: 5), .completed)
-        let back = app.navigationBars.buttons["BackButton"]
-        XCTAssertTrue(back.waitForExistence(timeout: 5))
-        back.tap()
-        let newConversation = app.buttons["newConversationToolbar"]
-        XCTAssertTrue(newConversation.waitForExistence(timeout: 5))
-        newConversation.tap()
-        app.textViews["messageInput"].tap(); app.textViews["messageInput"].tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(picker.label.contains("model-b-alt"))
-        capture("conversation-model")
+        modelRow.tap(); app.buttons["model-b-alt"].tap()
+        XCTAssertEqual(modelRow.value as? String, "model-b-alt")
+        capture("settings-default-model")
+        app.buttons["关闭"].tap(); app.buttons["newConversation"].tap()
+        let input = app.textViews["messageInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["conversationModelPicker"].exists)
+        input.tap(); input.tap()
+        XCTAssertFalse(app.buttons["conversationModelPicker"].exists)
+        XCTAssertFalse(app.buttons["settingsProviderRow"].exists)
         XCTAssertFalse(app.buttons["deviceControls"].exists)
         XCTAssertFalse(app.buttons["设置"].exists)
         XCTAssertFalse(app.buttons["滚动到最新消息"].exists)
         let add = app.buttons["addAttachment"].frame
         let send = app.buttons["sendMessage"].frame
         XCTAssertEqual(add.midY, send.midY, accuracy: 1)
+        capture("conversation-input-without-model-settings")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["newConversationToolbar"].tap()
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["conversationModelPicker"].exists)
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertFalse(app.buttons["deviceControls"].exists)
         app.buttons["设置"].tap()
+        XCTAssertEqual(providerRow.value as? String, "Fixture Two")
+        XCTAssertEqual(modelRow.value as? String, "model-b-alt")
         app.buttons["esp32ControlSettings"].tap()
         XCTAssertTrue(app.navigationBars["VPN 回环控制"].waitForExistence(timeout: 5))
     }
-    func testComposerActivationPreservesVisibleBottomAndMovesActionsBelowText() {
+    func testComposerActivationPreservesVisibleBottomAndKeepsActionsAligned() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-composer-history"]
@@ -542,9 +534,9 @@ import XCTest
         capture("composer-collapsed")
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["conversationModelPicker"].waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(add.frame.minY, input.frame.midY)
-        XCTAssertGreaterThan(send.frame.minY, input.frame.midY)
+        XCTAssertFalse(app.buttons["conversationModelPicker"].exists)
+        XCTAssertLessThan(abs(add.frame.midY - input.frame.midY), 2)
+        XCTAssertLessThan(abs(send.frame.midY - input.frame.midY), 2)
         XCTAssertEqual(add.frame.midY, send.frame.midY, accuracy: 1)
         print("Expanded viewport", app.scrollViews["conversationMessages"].value ?? "", "input", input.frame, "last exists", last.exists)
         let bottomKept = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
@@ -814,7 +806,7 @@ import XCTest
         app.buttons["saveProvider"].tap(); app.staticTexts["Fixture One"].tap()
         XCTAssertTrue(api.label.contains("Chat Completions")); XCTAssertFalse(context.exists)
     }
-    func testDiscoverModelsBrowseAllAndSelectCachedModelInConversation() {
+    func testDiscoverModelsBrowseAllAndSelectCachedModelInSettings() {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["--ui-testing", "--ui-test-model-catalog"]; app.launch()
         openProviders(app); app.staticTexts["Catalog Fixture"].tap()
@@ -851,30 +843,22 @@ import XCTest
         XCTAssertLessThan(app.buttons["providerModel-fixture-fifth"].frame.minY, selected.frame.minY)
         XCTAssertLessThan(selected.frame.minY, app.buttons["browseAllProviderModels"].frame.minY)
         capture("compact-model-chips")
-        app.buttons["saveProvider"].tap(); closeProviders(app); app.buttons["newConversation"].tap()
-        let picker = app.buttons["conversationModelPicker"]
-        // Match the existing composer-model test: complete the focus transition
-        // after dismissing an editor keyboard before expecting its action row.
-        app.textViews["messageInput"].tap(); app.textViews["messageInput"].tap()
-        XCTAssertTrue(picker.waitForExistence(timeout: 5))
-        XCTAssertTrue(picker.label.contains("fixture-seventh")); picker.tap()
-        let providerRow = app.buttons["conversationProviderRow"]
-        let modelRow = app.buttons["conversationModelRow"]
-        let effortRow = app.buttons["conversationReasoningEffort"]
-        capture("conversation-three-settings-open")
+        app.buttons["saveProvider"].tap()
+        app.navigationBars["供应商"].buttons["BackButton"].tap()
+        let providerRow = app.buttons["settingsProviderRow"]
+        let modelRow = app.buttons["settingsModelRow"]
+        let effortRow = app.buttons["settingsReasoningEffort"]
         XCTAssertTrue(providerRow.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertEqual(providerRow.value as? String, "Catalog Fixture")
         XCTAssertEqual(modelRow.value as? String, "fixture-seventh")
         XCTAssertEqual(effortRow.value as? String, "服务商默认")
         XCTAssertFalse(app.buttons["fixture-other"].exists)
-        capture("conversation-three-settings-rows")
+        capture("settings-model-selection")
         modelRow.tap(); app.buttons["fixture-other"].tap()
         XCTAssertEqual(modelRow.value as? String, "fixture-other")
         modelRow.tap(); app.buttons["fixture-vision"].tap()
         XCTAssertEqual(effortRow.value as? String, "high")
-        effortRow.tap()
-        capture("conversation-reasoning-popup")
-        app.buttons["low"].tap()
+        effortRow.tap(); app.buttons["low"].tap()
         XCTAssertEqual(effortRow.value as? String, "low")
         modelRow.tap(); app.buttons["fixture-other"].tap()
         XCTAssertEqual(effortRow.value as? String, "服务商默认")
@@ -882,8 +866,11 @@ import XCTest
         XCTAssertEqual(effortRow.value as? String, "low")
         effortRow.tap(); app.buttons["服务商默认（low）"].tap()
         XCTAssertEqual(effortRow.value as? String, "服务商默认（low）")
-        app.textViews["messageInput"].tap()
-        XCTAssertFalse(picker.label.contains("low"))
-        capture("discovered-model-selection")
+        capture("settings-reasoning-selection")
+        app.buttons["关闭"].tap(); app.buttons["newConversation"].tap()
+        XCTAssertFalse(app.buttons["conversationModelPicker"].exists)
+        app.textViews["messageInput"].tap(); app.textViews["messageInput"].tap()
+        XCTAssertFalse(app.buttons["conversationModelPicker"].exists)
+        capture("conversation-model-settings-hidden")
     }
 }

@@ -13,7 +13,7 @@ struct ProvidersView: View {
             List {
                 if let warning = providers.warning { Text(warning).foregroundStyle(.orange) }
                 if providers.profiles.isEmpty {
-                    ContentUnavailableView("添加模型供应商", systemImage: "server.rack", description: Text("配置地址和模型后，在会话中选择。"))
+                    ContentUnavailableView("添加模型供应商", systemImage: "server.rack", description: Text("配置地址和模型后，在设置中选择。"))
                 }
                 ForEach(providers.profiles) { profile in
                     Button { editing = profile } label: {

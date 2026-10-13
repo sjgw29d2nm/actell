@@ -6,6 +6,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--ui-testing", "--ui-test-skill-tools", "--ui-test-light"]
         app.launch(); app.buttons["设置"].tap()
+        if !app.buttons["manageSkills"].isHittable { app.swipeUp() }
         app.buttons["manageSkills"].tap()
         importSkill(app)
         let title = app.staticTexts["Synthetic Guide"].firstMatch
