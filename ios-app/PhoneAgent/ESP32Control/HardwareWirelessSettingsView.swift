@@ -140,7 +140,7 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
     var currentWiFiIsHardwareHotspot: Bool { !currentWiFiName.isEmpty && currentWiFiName == hotspotProfile?.ssid }
     var configurationUnavailableReason: String? {
         if busy { return "正在配置硬件网络，请等待或点「停止配置」。" }
-        if !PairingFlow.shared.canChangeRoute { return "手机操控正在连接或执行任务，请先在下方停止，再修改硬件网络。" }
+        if !PairingFlow.shared.canChangeRoute { return "手机操控正在连接或执行任务，请返回硬件页面停止，再修改硬件网络。" }
         if BluetoothBoardFlow.shared.busy { return "蓝牙正在处理请求，请等待完成。" }
         do {
             _ = try NCMProbeClient.selectHardwareTransport(wifi: nil)
@@ -639,6 +639,62 @@ struct HardwareWirelessSettingsView: View {
     }
     var body: some View {
         Form {
+            usbConnectionSection
+            if control.route == .ncmDeveloper {
+                PairingSection { showingTouchTest = true }
+            } else {
+                Section {
+                    Text("当前操控模式：\(control.route.title)").foregroundStyle(.secondary)
+                    Button("使用随办硬件v1操控手机") { _ = control.selectRoute(.ncmDeveloper) }
+                        .disabled(!canChangeBluetooth)
+                } header: { Text("手机操控连接") } footer: {
+                    Text("选择随办硬件后，可通过 USB 或已配好的无线网络连接。")
+                }
+            }
+            Section {
+                NavigationLink { wirelessConfigurationForm } label: {
+                    Label("蓝牙与 Wi-Fi 配置", systemImage: "antenna.radiowaves.left.and.right")
+                }.accessibilityIdentifier("openHardwareWirelessConfiguration")
+                if wifi.busy {
+                    Text("正在配置无线网络，可进入上方页面查看进度或停止配置。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            } header: { Text("无线连接（可选）") } footer: {
+                Text("使用 USB 可以跳过这里。当前蓝牙用于识别硬件和配网，完整无线操控还需要 Wi-Fi。")
+            }
+            if !wifi.history.isEmpty { historySection }
+        }
+        .navigationTitle("随办硬件v1")
+        .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(isPresented: $showingTouchTest) { TouchVerificationView(flow: control) }
+        .onAppear {
+            wifi.reload()
+            #if DEBUG
+            if !ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe") { control.resume() }
+            #else
+            control.resume()
+            #endif
+        }
+        .onDisappear { bluetooth.stopScan() }
+    }
+    private var usbConnectionSection: some View {
+        Section {
+            Label("USB 有线连接", systemImage: "cable.connector")
+            LabeledContent("实际操控通道", value: control.route == .ncmDeveloper && control.ready ? control.hardwareConnectionLabel : "尚未验证")
+                .accessibilityIdentifier("hardwareControlTransport")
+            Text("USB 可独立连接手机与硬件，无需先连接蓝牙或配置 Wi-Fi。接好后在下方完成手机操控连接。")
+                .font(.footnote).foregroundStyle(.secondary)
+            DisclosureGroup("USB 接线与网络设置") {
+                Text("手机需要接到板子的原生 USB／OTG 数据口。仅把编程口（COM）接到 Mac，不能建立手机与板子的 USB 操控连接。")
+                Text("Lightning 接口的手机需要支持 USB 外设的相机转换器，再通过 USB 数据线连接板子；普通 Lightning 充电线不能直接代替。供电不足时，使用转换器的辅助供电口。")
+                Text("若手机已识别 USB 以太网，将其设为手动：IP 192.168.7.2，子网掩码 255.255.255.0；路由器和 DNS 留空。")
+            }.font(.footnote)
+        } header: { Text("硬件连接") } footer: {
+            Text("连接检查会优先使用有效的 USB 通道。每次任务固定使用已验证的通道，断线后停止，不会自动改走无线或重发动作。")
+        }
+    }
+    private var wirelessConfigurationForm: some View {
+        Form {
             bluetoothSection
             if !bluetooth.connected && !bluetooth.connecting && !bluetooth.devices.isEmpty {
                 Section("选择你的硬件") {
@@ -651,35 +707,16 @@ struct HardwareWirelessSettingsView: View {
             }
             phoneNetworkSection
             hardwareNetworkSection
-            if control.route == .ncmDeveloper {
-                PairingSection { showingTouchTest = true }
-            } else {
-                Section {
-                    Text("当前操控模式：\(control.route.title)").foregroundStyle(.secondary)
-                    Button("使用随办硬件v1操控手机") { _ = control.selectRoute(.ncmDeveloper) }
-                        .disabled(!canChangeBluetooth)
-                } header: { Text("4 · 手机操控验证") } footer: {
-                    Text("硬件网络连接完成后，再完成手机系统授权和操控连接。")
-                }
-            }
             maintenanceSection
-            if !wifi.history.isEmpty { historySection }
         }
-        .navigationTitle("随办硬件v1")
+        .navigationTitle("无线配置")
         .navigationBarTitleDisplayMode(.inline)
-        .fullScreenCover(isPresented: $showingTouchTest) { TouchVerificationView(flow: control) }
         .confirmationDialog("清除本机硬件网络配置和连接记录？", isPresented: $clearConfirmation, titleVisibility: .visible) {
             Button("清除", role: .destructive) { wifi.clearConfiguration() }
         } message: { Text("会清除已保存的路由器和备用热点配置。系统开发者配对身份会保留。") }
         .onAppear {
-            wifi.reload()
             if routerSSID.isEmpty { routerSSID = wifi.currentWiFiName }
             wifi.refreshNetwork()
-            #if DEBUG
-            if !ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe") { control.resume() }
-            #else
-            control.resume()
-            #endif
         }
         .onChange(of: wifi.currentWiFiName) { oldValue, newValue in
             if routerSSID.isEmpty || routerSSID == oldValue { routerSSID = newValue }

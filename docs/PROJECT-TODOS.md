@@ -591,3 +591,10 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 当前 ScreenCaptureKit 实现只在 iOS 27 开启。iOS 26.5 的 `RPScreenRecorder.startCapture` 只采集本 App；系统级跨 App 采集需要 ReplayKit Broadcast Upload 扩展，由用户通过系统按钮确认开始。[Apple RPScreenRecorder](https://developer.apple.com/documentation/replaykit/rpscreenrecorder)、[Apple WWDC18 系统广播](https://devstreaming-cdn.apple.com/videos/wwdc/2018/601nz4m863hyf0/601/601_live_screen_broadcast_with_replaykit.pdf)。广播本身不保证主 App 的 AI 循环无限后台运行，仍需保持解锁和有效的运行资格。
 - 当前提供的签名授权只读核对：主 App true、独立广播扩展 false、拟定共享 App Group false。若采用标准共享组传递最新帧，主 App 与扩展需匹配该组，扩展需独立描述文件。现有主 App 显式 App ID 不能覆盖另一个扩展。此真实签名缺口尚未补齐，不宣称完整纯 BLE 安装或 USB 全能力替代已完成。
 - 下一阶段验收顺序：先只在随办自己的测试页面验证 BLE 键鼠及停止释放；再接入合法跨 App 采集与匹配签名；最后验证真实任务、中文／拖动／重连与后台条件。完整闭环通过后，再按用户要求关闭并移除板子 Wi-Fi。只读复核没有新增生产依赖、烧录板子或操作手机输入。
+
+### 2026-10-13 · USB 入口与 Lightning 接线说明
+
+- 用户指出现装 1.6 的硬件页只有显眼的蓝牙／Wi-Fi 配置。源码及该版来源核对：USB NCM 仍保留，初次连接优先选择有效 USB 接口，原生 USB 与编程 COM 不是同一数据通道；无需先做蓝牙／Wi-Fi 配网。不能把页面遗漏等同于 USB 协议缺失。
+- 硬件页顶部新增 USB 有线说明，唯一手机操控连接区移到顶部，实际通道只在 `ready` 后显示；蓝牙与 Wi-Fi 保持同一个可选无线配置页面。没有新增连接偏好或改变传输选择、会话锁与断线停止行为。
+- 用户确认当前使用苹果充电线，前次实机型号为 Lightning 接口 iPhone 12 Pro Max。普通 Lightning 充电线不能代替 USB 外设转换器；App 增加相机转换器、原生 USB／OTG 口、辅助供电及识别以太网后的固定地址说明。参考 [Apple USB-A 相机转换器](https://support.apple.com/zh-cn/111811)。这是接线要求核对，尚未用合适转换器确认当前手机能够枚举本板或执行任务；亮灯本身也不是 USB 操控验收。
+- 相关 source/project 检查 91 Swift 文件通过，3 个改动 Swift 文件 `swiftc -frontend -parse` 与 `git diff --check` 通过；这些不代表 iPhoneOS SDK 类型检查或真机 UI 验收。新入口尚未构建或安装，手机现装仍为 1.6／7cef192。此轮未烧录固件、改供电或关闭 Wi-Fi。

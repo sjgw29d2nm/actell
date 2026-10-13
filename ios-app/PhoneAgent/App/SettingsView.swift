@@ -96,7 +96,7 @@ struct SettingsView: View {
                         }.accessibilityIdentifier("esp32ControlSettings")
                     }
                     NavigationLink { HardwareWirelessSettingsView() } label: {
-                        Label("硬件设置", systemImage: "antenna.radiowaves.left.and.right")
+                        Label("硬件设置", systemImage: "cable.connector")
                     }.accessibilityIdentifier("suibanHardwareSettings")
                 }
                 Section {
