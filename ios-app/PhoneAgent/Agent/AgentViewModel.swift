@@ -676,9 +676,10 @@ struct AgentRunServices {
                 timeZoneIdentifier: scheduleTimeZone, canCreate: canUse,
                 create: { [weak self] proposal, _ in
                     if let receipt = try await action.validateScheduleDecision() { return receipt }
+                    guard let owner = self else { throw AppError.stopped }
                     let receipt = try await MainActor.run {
                         try Task.checkCancellation()
-                        guard let self, self.canArrangeTask(identity: identity, generation: token) else { throw AppError.stopped }
+                        guard owner.canArrangeTask(identity: identity, generation: token) else { throw AppError.stopped }
                         guard !hasAttachments else { throw AppError.invalid("定时任务暂不保存附件。请在消息中写明任务内容或手机内资料的位置，再安排执行时间") }
                         return try createSchedule(proposal, identity, providerID, modelID, endpoint)
                     }
