@@ -564,3 +564,11 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 178e 无按键热点固件已逐区域校验并确认实际启动：`suiban_ble: advertising Suiban-v1`、`suiban_wifi: local access point started`、`pa_developer: authenticated Wi-Fi developer transport listening`；这只证明固件启动，尚非新路由器模式手机验收。路由器候选在独立 build 编译，保留原分区/NVS；最终镜像、SDK 构建、安装与真实入网结果待补。
 - 当前 Mac 手机检测原始结果为 `[]`，已请求用户重新接到 Mac 并解锁；独立固件与 App 工作继续。现有 iOS 26.5 截图／触控 CoreDevice 限制不会因 BLE 配网或 Wi-Fi STATUS 成功而自动解除。
 - 最终路由器固件 SDK 构建通过：App `1007168` bytes、SHA256 `d14da81cc2d6ada54259d398728e6cb7a93665b2a21288d344d0a1211936779c`；原 1MiB 分区剩余 `41408` bytes。分区与此前镜像逐字节相同，四个改动 C 文件实际 xtensa 语法检查通过；没有新增生产依赖。当前 Wi-Fi 范围为 2.4GHz 开放／WPA2 私网 IPv4，访客隔离、5GHz-only、企业登录和跨互联网中转尚不支持。
+
+### 2026-10-13 · 7cef192 构建与设备交付证据
+
+- 源码已提交并推送 `7cef1923bccda545471ea0ebe72fe5e89073a6bf`，草稿 [PR #3](https://github.com/sjgw29d2nm/actell/pull/3) 已更新本轮 App 配网与无线通道范围，未合并。
+- [iPhoneOS 构建 38390430425](https://github.com/sjgw29d2nm/actell/actions/runs/38390430425) 成功；原文 `2026-10-13T11:31:33.6754760Z ** BUILD SUCCEEDED **`。无签名产物 `11807897936`，下载归档 SHA256 `c44a02d16ff3395389016ddc9b8ce1114a7ad54c8e04b3f62c4105943b94f11a`。build_only 明确跳过 XCTest/模拟器/UI 检查，不能把 job 名称当成这些测试已通过。
+- App 1.6 已在 Mac 使用原描述文件本机签名，严格 codesign 校验通过；主 App ID、iOS 26.5 最低版本、ScreenCaptureKit 弱链接和来源提交均核对。描述文件及最终签名都授权 HotspotConfiguration 与 wifi-info，原钥匙串搜索列表已恢复。当前证书只覆盖主 App，因此本地包继续不包含 Live Activity 扩展；模型密钥没有打入包或上传。
+- 路由器固件已在指定 ESP32-S3 编程串口核对 USB 序列/MAC/16MB 后写入，bootloader/原分区/App 三个区域校验通过；App SHA256 与上述最终候选一致。没有写入 NVS 或 eFuse。启动原文：`pa_developer: ND1 / NR1 / NL1 share one USB/AP/router relay owner`、`suiban_ble: advertising Suiban-v1`、`suiban_wifi: local access point started`，本次采样无 panic/abort。此处证明写入和启动，不代表手机已经入网。
+- 新版 App 尚未安装。本次最终 usbmux 原始结果仍为 `[]`，独立 USB 层报告 `usb_iPhone_present:false`，而已知板子仍在。已请求用户重新连接并解锁手机；安装包和保留 App 自身身份／智谱配置的更新与检查命令已准备。不能把待安装、蓝牙/Wi-Fi 真机读取、开放/隐藏网络入网和完整手机任务执行记为完成。
