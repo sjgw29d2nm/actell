@@ -4,16 +4,19 @@ struct ContentView: View {
     @ObservedObject var model: AgentViewModel
     @ObservedObject var statusPiP: StatusPiPController
     @ObservedObject private var sessions: ConversationStore
+    @ObservedObject private var scheduledTasks: ScheduledTaskController
     let commands: SessionCommandService
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [UUID] = []
     @State private var consumedActivityNavigationID: UUID?
     @State private var search = ""
-    private enum Panel: String, Identifiable { case settings; var id: String { rawValue } }
+    private enum Panel: String, Identifiable { case settings, scheduled; var id: String { rawValue } }
     @State private var panel: Panel?
-    init(model: AgentViewModel, statusPiP: StatusPiPController, commands: SessionCommandService) {
+    init(model: AgentViewModel, statusPiP: StatusPiPController, commands: SessionCommandService,
+         scheduledTasks: ScheduledTaskController) {
         self.commands = commands
         self.model = model; self.statusPiP = statusPiP; self.sessions = model.sessions
+        self.scheduledTasks = scheduledTasks
     }
     private var visible: [AgentConversation] {
         sessions.conversations.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || $0.preview.localizedCaseInsensitiveContains(search) }
@@ -26,6 +29,12 @@ struct ContentView: View {
                     emptyState
                 } else {
                     List {
+                        if !scheduledTasks.tasks.isEmpty || scheduledTasks.isArmed {
+                            Button { panel = .scheduled } label: {
+                                Label(scheduledTasks.isArmed ? scheduledTasks.statusText : "定时任务 · \(scheduledTasks.tasks.count) 个", systemImage: "clock")
+                                    .font(.subheadline)
+                            }.accessibilityIdentifier("scheduledTasksSummary")
+                        }
                         if let warning = sessions.warning { Label(warning, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange) }
                         ForEach(visible) { session in
                             NavigationLink(value: session.id) {
@@ -47,6 +56,7 @@ struct ContentView: View {
                         .frame(width: 78, height: 26).foregroundStyle(.primary).accessibilityLabel("随办")
                 }
                 ToolbarItem(placement: .topBarLeading) { Button { panel = .settings } label: { Image(systemName: "gear") }.accessibilityLabel("设置") }
+                ToolbarItem(placement: .topBarTrailing) { Button { panel = .scheduled } label: { Image(systemName: "clock") }.accessibilityLabel("定时任务").accessibilityIdentifier("openScheduledTasks") }
                 ToolbarItem(placement: .topBarTrailing) { Button(action: createConversation) { Image(systemName: "square.and.pencil") }.accessibilityLabel("新建会话").accessibilityIdentifier("newConversationToolbar") }
             }
             .navigationDestination(for: UUID.self) { id in
@@ -55,6 +65,13 @@ struct ContentView: View {
             .sheet(item: $panel) { item in
                 switch item {
                 case .settings: SettingsView(model: model)
+                case .scheduled:
+                    NavigationStack {
+                        ScheduledTasksView(controller: scheduledTasks) { id in
+                            guard sessions.conversation(id) != nil else { scheduledTasks.reportMissingConversation(); return }
+                            panel = nil; path = [id]
+                        }
+                    }
                 }
             }
 
@@ -105,6 +122,9 @@ struct ContentView: View {
                     }
                     .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
                     .accessibilityIdentifier("newConversation")
+                    Button { panel = .scheduled } label: {
+                        Label("安排定时任务", systemImage: "clock")
+                    }.font(.subheadline).accessibilityIdentifier("scheduledTasksEmptyEntry")
                 }
                 .padding(.horizontal, 28).padding(.top, 72).padding(.bottom, 40)
                 .frame(maxWidth: 460, alignment: .leading)

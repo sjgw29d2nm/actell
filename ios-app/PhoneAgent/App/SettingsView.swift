@@ -105,6 +105,7 @@ struct SettingsView: View {
                     Text(backgroundMode == BackgroundPlaybackMode.systemTask.rawValue
                          ? "系统任务会显示系统进度。开启常驻后，空闲时用音频等待新任务。"
                          : "开启后，无任务时也保持所选后台模式。")
+                    Text("自动执行模式开启期间也会保持待命；系统挂起或锁屏仍可能中断任务。")
                 }
                 Section("扩展能力") {
                     NavigationLink { SkillsView(model: model, store: model.skills) } label: {

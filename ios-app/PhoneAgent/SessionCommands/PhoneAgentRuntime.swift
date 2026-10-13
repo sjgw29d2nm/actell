@@ -5,6 +5,7 @@ import Foundation
     static let shared = PhoneAgentRuntime()
     let model: AgentViewModel
     let commands: SessionCommandService
+    lazy var scheduledTasks = ScheduledTaskController(model: model, commands: commands)
     private init() {
         model = Self.makeModel()
         commands = SessionCommandService(sessions: model.sessions, runner: model)

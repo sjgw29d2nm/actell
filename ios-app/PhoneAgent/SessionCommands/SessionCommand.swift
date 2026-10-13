@@ -86,6 +86,11 @@ enum SessionPublicStatus: String, Sendable {
         sessions.conversations.filter { $0.entry?.state == .pendingConfirmation && $0.entry?.routePending == true }
             .max { $0.createdAt < $1.createdAt }?.id
     }
+    /// A scheduled request must not become a process-local Siri handoff that
+    /// starts later after its owner has reported the occurrence as interrupted.
+    func discardPendingExecution(commandID: UUID) {
+        pendingExecutions.removeValue(forKey: commandID)
+    }
     func resumePendingExecutions() {
         guard runner.commandCanStart else { return }
         let commands = pendingExecutions.values.sorted { $0.createdAt < $1.createdAt }
