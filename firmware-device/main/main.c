@@ -1,6 +1,7 @@
 #include "usb_device.h"
 #include "developer_service.h"
 #include "bluetooth_board.h"
+#include "wifi_board.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "lwip/sockets.h"
@@ -88,6 +89,8 @@ void app_main(void) {
     if (bluetooth_status!=ESP_OK) {
         ESP_LOGW(TAG,"BLE diagnostics unavailable: %s; USB remains available; NVS preserved",esp_err_to_name(bluetooth_status));
     }
+    esp_err_t wifi_status=wifi_board_start();
+    if(wifi_status!=ESP_OK)ESP_LOGW(TAG,"Wi-Fi setup unavailable: %s; USB remains available; NVS preserved",esp_err_to_name(wifi_status));
     int listener=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
     ESP_ERROR_CHECK(listener<0 ? ESP_FAIL:ESP_OK);
     struct sockaddr_in address={.sin_family=AF_INET,.sin_port=htons(28766)};

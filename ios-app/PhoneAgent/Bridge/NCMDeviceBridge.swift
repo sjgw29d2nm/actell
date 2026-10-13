@@ -19,7 +19,7 @@ enum DeviceControlRoute: String, Sendable {
     var modelContext: String {
         switch self {
         case .ncmDeveloper:
-            return "Screenshots and touch input use the authenticated ESP32 NCM developer connection. Background execution needs an active execution source. Device tools wait for a paired connection internally; reconnecting invalidates old frames and action grants, while read tools can bind the new session."
+            return "Screenshots and touch input use the authenticated Suiban hardware relay through USB or its saved Wi-Fi hotspot. Bluetooth discovers and provisions hardware; it is not the screenshot transport. A run pins its verified transport. Background execution needs an active execution source. Device tools wait for a paired connection internally; reconnecting invalidates old frames and action grants, while read tools can bind the new session."
         case .vpnLoopback:
             return "Screenshots and touch input use authenticated CoreDevice services through a local VPN loopback on this phone, without ESP32. A compatible packet-reflection VPN must already be enabled with the configured interface and peer addresses. Device tools verify the paired connection internally; reconnecting invalidates old frames and action grants. Follow actual readiness errors."
         case .localCaptureUSB:

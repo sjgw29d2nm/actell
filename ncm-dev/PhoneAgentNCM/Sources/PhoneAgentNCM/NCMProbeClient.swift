@@ -16,17 +16,40 @@ import Network
     private var timer: Task<Void, Never>?
     public init() {}
 
-    public func request(_ command: DiagnosticCommand) async throws -> DiagnosticReply {
-        guard pending == nil else { throw NCMError.busy }
-        try Task.checkCancellation()
-        let binding = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory())
-        let connection = NWConnection(host: .ipv4(binding.remoteAddress), port: 28767, using: binding.parameters())
-        return try await exchange(command, connection: connection)
+    /// USB wins only when initially selecting a connection attempt. An invalid
+    /// or ambiguous USB interface is an error, never permission to use Wi-Fi.
+    public static func selectHardwareTransport(wifi: WirelessRelayConfiguration?) throws -> HardwareRelayTransport {
+        let rows = try NCMInterfaceBinding.inventory()
+        if rows.contains(where: { $0.address == NCMInterfaceBinding.localIP }) {
+            _ = try NCMInterfaceBinding.resolve(rows)
+            return .usb
+        }
+        guard let wifi else { throw NCMError.interfaceUnavailable }
+        let transport = HardwareRelayTransport.wifi(wifi)
+        _ = try NCMInterfaceBinding.resolve(rows, transport: transport)
+        return transport
     }
-    // Internal test seam: the public path always resolves and binds actual NCM.
-    func exchange(_ command: DiagnosticCommand, connection: NWConnection, timeout: Duration = .seconds(7)) async throws -> DiagnosticReply {
+
+    public func request(_ command: DiagnosticCommand, transport: HardwareRelayTransport = .usb) async throws -> DiagnosticReply {
         guard pending == nil else { throw NCMError.busy }
         try Task.checkCancellation()
+        let binding = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory(), transport: transport)
+        let connection = NWConnection(host: .ipv4(binding.remoteAddress), port: 28767, using: binding.parameters())
+        let authorization: WirelessRelayConfiguration?
+        if case .wifi(let configuration) = transport { authorization = configuration }
+        else { authorization = nil }
+        return try await exchange(command, connection: connection, authorization: authorization)
+    }
+    // Internal test seam: the public path always resolves and binds the selected interface.
+    func exchange(_ command: DiagnosticCommand, connection: NWConnection, timeout: Duration = .seconds(7), authorization: WirelessRelayConfiguration? = nil) async throws -> DiagnosticReply {
+        guard pending == nil else { throw NCMError.busy }
+        try Task.checkCancellation()
+        // No authentication ACK is expected. The hardware forwards the command
+        // after checking this header, then returns the unchanged ND1 reply.
+        var requestBytes = Data()
+        if let authorization { requestBytes.append(contentsOf: "NW1 AUTH \(authorization.relayToken)\n".utf8) }
+        requestBytes.append(contentsOf: command.wire.utf8)
+        let wireBytes = requestBytes
         let id = UUID()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -40,7 +63,7 @@ import Network
                         case .ready:
                             guard self.pending?.sent == false else { return }
                             self.pending?.sent = true
-                            connection.send(content: Data(command.wire.utf8), completion: .contentProcessed { [weak self] error in
+                            connection.send(content: wireBytes, completion: .contentProcessed { [weak self] error in
                                 Task { @MainActor [weak self] in
                                     if error != nil { self?.finish(id, .failure(NCMError.network)) }
                                     else { self?.receive(id) }

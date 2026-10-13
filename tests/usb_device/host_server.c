@@ -1,6 +1,8 @@
 // Runs production main.c and its ledger/motion on POSIX TCP. USB is simulated.
 #include "usb_device.h"
 #include "developer_service.h"
+#include "bluetooth_board.h"
+#include "wifi_board.h"
 #include "hid_motion.h"
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +19,10 @@ esp_err_t usb_network_start(void) { hid_enabled=getenv("PA_TEST_HID")!=NULL; ret
 esp_err_t developer_service_start(bool (*online)(void), uint32_t (*epoch)(void), uint32_t index) {
     (void)online; (void)epoch; (void)index; return ESP_OK;
 }
+// Radio setup is outside this PA3 loopback harness; production keeps USB alive
+// when radios are unavailable. Real relay ownership is checked separately.
+esp_err_t bluetooth_board_start(void) { return ESP_FAIL; }
+esp_err_t wifi_board_start(void) { return ESP_FAIL; }
 uint32_t usb_network_index(void) { return 1; }
 uint32_t usb_epoch(void) { return (uint32_t)bus_epoch; }
 bool usb_online(void) { return true; }

@@ -69,23 +69,31 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         if old != 0 { ncm_backend_close(old) }
     }
     /// Caller must refresh discovery just before this call (candidate TTL).
-    /// Bind to the actual .2/24 Ethernet interface, never default routing.
+    /// Bind to the actual selected .2/24 interface, never default routing.
     public func connect(identity: AuthorizedRemoteIdentity, authorization: ExistingSessionAuthorization,
-                        discovery: DiagnosticReply, endpoint: DiagnosticReply.Endpoint) async throws {
+                        discovery: DiagnosticReply, endpoint: DiagnosticReply.Endpoint,
+                        transport: HardwareRelayTransport = .usb) async throws {
         try Task.checkCancellation()
         guard authorization.verifyExistingIdentity else { throw NativeBackendError.authorizationRequired }
         guard !busy, handle == 0 else { throw NativeBackendError.busy }
         guard Self.linkedABIVersion == NCM_BACKEND_ABI else { throw NativeBackendError.unsupportedABI }
         guard let generation = discovery.generation, generation > 0, endpoint.service == "remotepairing",
               discovery.endpoints?.contains(where: { $0.index == endpoint.index && $0.family == endpoint.family && $0.port == endpoint.port && $0.service == endpoint.service }) == true else { throw NativeBackendError.invalidCandidate }
-        let row = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory()).row
+        let row = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory(), transport: transport).row
         var config = ncm_config(abi: 1, interface_index: row.index, generation: generation, endpoint_index: UInt32(endpoint.index), permissions: authorization.mask)
-        let values = [identity.signingSeed, Data(identity.controllerID.utf8), Data(identity.peerID.utf8), identity.peerPublicKey,
+        var values = [identity.signingSeed, Data(identity.controllerID.utf8), Data(identity.peerID.utf8), identity.peerPublicKey,
                       identity.alternateIRK, Data(identity.peerUDID.utf8), Data(identity.peerModel.utf8)]
+        if case .wifi(let configuration) = transport { values.append(Data(configuration.relayToken.utf8)) }
         var started: UInt64 = 0
         let code = withSlices(values) { b in
             var raw = ncm_identity(seed: b[0], controller_id: b[1], peer_id: b[2], peer_public_key: b[3], alt_irk: b[4], peer_udid: b[5], peer_model: b[6])
-            return ncm_backend_start(&config, &raw, &started)
+            switch transport {
+            case .usb:
+                return ncm_backend_start(&config, &raw, &started)
+            case .wifi(let configuration):
+                return ncm_wifi_start_configured(row.index, generation, UInt32(endpoint.index), authorization.mask,
+                                                 configuration.localIPv4, configuration.boardIPv4, b[7], &raw, &started)
+            }
         }
         guard code == 0, started != 0 else { throw NativeBackendError.transport(code: code) }
         handle = started

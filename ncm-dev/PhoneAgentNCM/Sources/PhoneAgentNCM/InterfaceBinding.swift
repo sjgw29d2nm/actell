@@ -4,6 +4,36 @@ import Foundation
 import Network
 import Darwin
 
+/// Credentials received from the selected hardware over Bluetooth. The first
+/// wireless version uses the hardware's own hotspot, without a default route.
+public struct WirelessRelayConfiguration: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible {
+    public let localAddress: String
+    public let boardAddress: String
+    public let relayToken: String
+    let localIPv4: UInt32 = 0xc0a80802
+    let boardIPv4: UInt32 = 0xc0a80801
+
+    public init(localAddress: String, boardAddress: String, relayToken: String) throws {
+        guard localAddress == "192.168.8.2", boardAddress == "192.168.8.1",
+              relayToken.utf8.count == 64,
+              relayToken.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+            throw NCMError.interfaceInvalid
+        }
+        self.localAddress = localAddress
+        self.boardAddress = boardAddress
+        self.relayToken = relayToken
+    }
+    public var description: String { "WirelessRelayConfiguration(localAddress: \(localAddress), boardAddress: \(boardAddress), relayToken: [REDACTED])" }
+    public var debugDescription: String { description }
+}
+
+/// A connection attempt selects this once; probe and backend calls reuse it.
+/// A disconnected transport fails rather than changing a running session.
+public enum HardwareRelayTransport: Sendable, Equatable {
+    case usb
+    case wifi(WirelessRelayConfiguration)
+}
+
 struct NCMInterfaceBinding {
     static let localIP = "192.168.7.2"
     static let remoteIP = "192.168.7.1"
@@ -53,6 +83,35 @@ struct NCMInterfaceBinding {
         }
         try validateType(interface.type)
         return NCMInterfaceBinding(row: row, interface: interface, localAddress: local, remoteAddress: remote)
+    }
+    static func selectWiFi(_ rows: [Row], configuration: WirelessRelayConfiguration) throws -> Row {
+        let matches = rows.filter { $0.address == configuration.localAddress }
+        guard matches.count == 1, let row = matches.first else {
+            throw matches.isEmpty ? NCMError.interfaceUnavailable : NCMError.interfaceAmbiguous
+        }
+        let required = UInt32(IFF_UP | IFF_RUNNING | IFF_BROADCAST)
+        let forbidden = UInt32(IFF_LOOPBACK | IFF_POINTOPOINT)
+        guard row.index > 0, row.mask == netmask, row.flags & required == required,
+              row.flags & forbidden == 0, row.linkType == UInt8(IFT_ETHER) else {
+            throw NCMError.interfaceInvalid
+        }
+        return row
+    }
+    static func resolve(_ rows: [Row], transport: HardwareRelayTransport) throws -> NCMInterfaceBinding {
+        switch transport {
+        case .usb:
+            return try resolve(rows)
+        case .wifi(let configuration):
+            let row = try selectWiFi(rows, configuration: configuration)
+            guard let remote = IPv4Address("\(configuration.boardAddress)%\(row.name)"),
+                  let local = IPv4Address("\(configuration.localAddress)%\(row.name)"),
+                  let interface = remote.interface, local.interface == interface,
+                  interface.name == row.name, interface.index == Int(row.index),
+                  interface.type == .wifi else {
+                throw NCMError.interfaceInvalid
+            }
+            return NCMInterfaceBinding(row: row, interface: interface, localAddress: local, remoteAddress: remote)
+        }
     }
     func parameters() -> NWParameters {
         let parameters = NWParameters.tcp

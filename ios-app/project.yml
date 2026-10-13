@@ -46,6 +46,7 @@ targets:
         'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release']
         'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release']
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: PhoneAgent/PhoneAgent.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.ja1chen.PhoneAgent
         INFOPLIST_FILE: PhoneAgent/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: $(APP_DISPLAY_NAME)

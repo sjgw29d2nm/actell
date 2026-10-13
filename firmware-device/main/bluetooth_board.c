@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "bluetooth_board.h"
 #include "usb_device.h"
+#include "wifi_board.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
@@ -26,22 +27,51 @@ static const ble_uuid128_t service_uuid=BOARD_UUID(0x00);
 static const ble_uuid128_t information_uuid=BOARD_UUID(0x01);
 static const ble_uuid128_t command_uuid=BOARD_UUID(0x02);
 static const ble_uuid128_t response_uuid=BOARD_UUID(0x03);
+static const ble_uuid128_t wifi_information_uuid=BOARD_UUID(0x04);
 static const char *TAG="suiban_ble";
 static uint8_t address_type;
 static uint16_t response_handle;
 static char device_id[13];
 static char response[21]="SB1 READY";
 static int gap_event(struct ble_gap_event *event,void *argument);
+static portMUX_TYPE window_lock=portMUX_INITIALIZER_UNLOCKED;
+static uint16_t connected_handle=BLE_HS_CONN_HANDLE_NONE,wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;
+static uint32_t connection_epoch=1,wifi_window_epoch;
+static int64_t wifi_window_deadline;
+
+void bluetooth_board_close_wifi_window(void) {
+    taskENTER_CRITICAL(&window_lock);wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
+}
+bool bluetooth_board_open_wifi_window(void) {
+    taskENTER_CRITICAL(&window_lock);uint16_t handle=connected_handle;uint32_t epoch=connection_epoch;taskEXIT_CRITICAL(&window_lock);
+    struct ble_gap_conn_desc connection;
+    if(handle==BLE_HS_CONN_HANDLE_NONE||ble_gap_conn_find(handle,&connection)||!connection.sec_state.encrypted||!connection.sec_state.bonded)return false;
+    taskENTER_CRITICAL(&window_lock);
+    bool valid=connected_handle==handle&&connection_epoch==epoch;
+    if(valid){wifi_window_handle=handle;wifi_window_epoch=epoch;wifi_window_deadline=esp_timer_get_time()+60000000;}
+    taskEXIT_CRITICAL(&window_lock);return valid;
+}
 
 static int access_characteristic(uint16_t connection,uint16_t attribute,
                                  struct ble_gatt_access_ctxt *context,void *argument) {
     (void)attribute;
     uintptr_t kind=(uintptr_t)argument;
+    if(context->op==BLE_GATT_ACCESS_OP_READ_CHR&&kind==4) {
+        taskENTER_CRITICAL(&window_lock);
+        bool allowed=connection==wifi_window_handle&&wifi_window_epoch==connection_epoch&&esp_timer_get_time()<wifi_window_deadline;
+        taskEXIT_CRITICAL(&window_lock);
+        struct ble_gap_conn_desc security;
+        if(!allowed||ble_gap_conn_find(connection,&security)||!security.sec_state.encrypted||!security.sec_state.bonded)return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        char information[512];
+        if(wifi_board_information(information,sizeof information)!=ESP_OK)return BLE_ATT_ERR_UNLIKELY;
+        int result=os_mbuf_append(context->om,information,(uint16_t)strlen(information));
+        memset(information,0,sizeof information);return result==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
     if (context->op==BLE_GATT_ACCESS_OP_READ_CHR && kind==1) {
         char information[256];
         int length=snprintf(information,sizeof information,
             "{\"version\":1,\"id\":\"%s\",\"name\":\"随办硬件v1\",\"chip\":\"esp32s3\","
-            "\"usb_connected\":%s,\"uptime_ms\":%"PRId64",\"capabilities\":[\"status\",\"ping\"]}",
+            "\"usb_connected\":%s,\"uptime_ms\":%"PRId64",\"capabilities\":[\"status\",\"ping\",\"wifi_setup\"]}",
             device_id,usb_online()?"true":"false",esp_timer_get_time()/1000);
         if (length<0 || (size_t)length>=sizeof information) return BLE_ATT_ERR_UNLIKELY;
         return os_mbuf_append(context->om,information,(uint16_t)length)==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -70,6 +100,7 @@ static const struct ble_gatt_svc_def services[]={
          {.uuid=&information_uuid.u,.access_cb=access_characteristic,.arg=(void *)1,.flags=BLE_GATT_CHR_F_READ},
          {.uuid=&command_uuid.u,.access_cb=access_characteristic,.arg=(void *)2,.flags=BLE_GATT_CHR_F_WRITE|BLE_GATT_CHR_F_WRITE_ENC},
          {.uuid=&response_uuid.u,.access_cb=access_characteristic,.arg=(void *)3,.val_handle=&response_handle,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_NOTIFY|BLE_GATT_CHR_F_READ_ENC},
+         {.uuid=&wifi_information_uuid.u,.access_cb=access_characteristic,.arg=(void *)4,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_READ_ENC},
          {0}}},
     {0}
 };
@@ -101,10 +132,12 @@ static int gap_event(struct ble_gap_event *event,void *argument) {
     (void)argument;
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
+        taskENTER_CRITICAL(&window_lock);++connection_epoch;connected_handle=event->connect.status==0?event->connect.conn_handle:BLE_HS_CONN_HANDLE_NONE;wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
         ESP_LOGI(TAG,"connection result=%d",event->connect.status);
         if (event->connect.status!=0) advertise();
         break;
     case BLE_GAP_EVENT_DISCONNECT:
+        taskENTER_CRITICAL(&window_lock);++connection_epoch;connected_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
         snprintf(response,sizeof response,"SB1 READY");
         ESP_LOGI(TAG,"disconnected reason=%d",event->disconnect.reason);
         advertise();
@@ -119,11 +152,17 @@ static int gap_event(struct ble_gap_event *event,void *argument) {
     return 0;
 }
 
-static void host_reset(int reason) { ESP_LOGE(TAG,"host reset reason=%d",reason); }
+static void host_reset(int reason) {
+    taskENTER_CRITICAL(&window_lock);++connection_epoch;connected_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
+    ESP_LOGE(TAG,"host reset reason=%d",reason);
+}
 static void host_sync(void) {
     int result=ble_hs_util_ensure_addr(0);
     if (result==0) result=ble_hs_id_infer_auto(0,&address_type);
     if (result!=0) { ESP_LOGE(TAG,"identity setup failed: %d",result);return; }
+    /* The built-in GATT service retains Service Changed indications for
+     * disconnected bonded peers, refreshing iOS's cache after firmware upgrade. */
+    ble_svc_gatt_changed(1,UINT16_MAX);
     advertise();
 }
 static void host_task(void *argument) {

@@ -10,6 +10,13 @@ struct ESP32ControlSettingsView: View {
     private enum AddressField: Hashable { case local, peer }
     @FocusState private var editing: AddressField?
     var body: some View {
+        if flow.route == .ncmDeveloper {
+            HardwareWirelessSettingsView()
+        } else {
+            vpnForm
+        }
+    }
+    private var vpnForm: some View {
         Form {
             if flow.route == .vpnLoopback {
                 vpnConfigurationSection
@@ -46,8 +53,9 @@ struct ESP32ControlSettingsView: View {
                 candidates: [VPNLoopbackConfiguration.defaults.peerAddress],
                 field: .peer, identifier: "vpnLoopbackPeerAddress")
             if let error { Text(error).font(.footnote).foregroundStyle(.red) }
-        } footer: {
-            Text("建立连接阶段需要处于 Wi-Fi 环境")
+        } header: { Text("手机内的 VPN 回环") } footer: {
+            Text("这条方式不使用随办硬件。它需要另外安装并启用支持回环的 LocalDevVPN，以及系统开发者配对；这里的地址必须与该 VPN 配置一致。普通上网 VPN 不能代替。")
+            Text("如果使用随办硬件，请返回设置，选择「随办硬件v1」，再进入「硬件设置」。建立回环连接阶段还需要处于 Wi-Fi 环境。")
         }
         .keyboardType(.numbersAndPunctuation)
         .textInputAutocapitalization(.never)

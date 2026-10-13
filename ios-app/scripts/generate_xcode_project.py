@@ -120,6 +120,7 @@ def generate():
         dependencies = []
         if name == "PhoneAgent":
             settings.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="PhoneAgent/Info.plist", INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)",
+                            CODE_SIGN_ENTITLEMENTS="PhoneAgent/PhoneAgent.entitlements",
                             INFOPLIST_KEY_NSSupportsLiveActivities="YES",
                             INFOPLIST_KEY_NSLocalNetworkUsageDescription="Connect to your explicitly paired development bridge while this app is open.",
                             INFOPLIST_KEY_UIApplicationSceneManifest_Generation="YES",
