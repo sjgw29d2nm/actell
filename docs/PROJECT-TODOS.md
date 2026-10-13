@@ -494,3 +494,11 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 本机源检查通过：88 个 Swift 文件语法与既有配置／保护断言通过；改动的 Swift 源码通过 `swiftc -frontend -parse`，`git diff --check` 通过。上述检查不是 iOS SDK 类型检查、模拟器测试或真机验收。当前 Mac 只有 Command Line Tools；完整 iPhoneOS 构建通过现有云端 Xcode 流程进行，结果待补。
 
 当前用户设备 iOS 26.5 的前次 `startmediastream` 错误 9021 仍是实际页面操控的限制；增加定时入口不会解除该系统限制，尚未宣称真机复杂任务完整执行成功。
+
+### 构建、安装及页面核对补充
+
+- 首次 SDK 构建定位到新编辑器 Section 初始化错误，原始日志 `ScheduledTasksView.swift:228:24: error: missing argument label 'content:' in call`；改为显式 header/footer 后，提交 `184589f` 的 [云端 iPhoneOS 构建](https://github.com/sjgw29d2nm/actell/actions/runs/38364355903) 返回 `BUILD SUCCEEDED`，无签名产物 `11796043588`。产物上传后主动取消后续全量模拟器流程，XCTest/UI 测试没有运行，不将工作流 cancelled 当作全 CI 通过。
+- 本机严格签名检查通过，更新包未加入模型密钥文件。USB 安装日志 `2026-10-13 15:52:53 ... INFO Installation succeed.`；设备元数据确认版本 `1.2`、`SuibanSourceCommit=184589f0b7e56a6e1547fe954479d4424d09d662`，启动返回进程号 `15254`。
+- 实际手机截图已核对定时任务页面：自动执行开关、保持解锁与“永不”的路径、低电量说明、设置入口、复制路径和新建任务可见。应用偏好确认保留 1 个“智谱 AI”供应商、所选 `glm-5.3-flash` 和已有密钥引用；未发起真实模型推理或执行真实手机任务。
+- 用户询问设置按钮用途后，将文案明确为“随办权限设置”，说明其打开随办专属系统设置页；全局自动锁定需要返回设置首页按路径调整。公开 URL 不支持直接修改或跳入自动锁定。
+- 用户报告的 Mac 网络安装弹窗已从 `/var/log/install.log` 和统一日志确认来自 `MobileDeviceUpdater`，`SUSoftwareUpdateErrorDomain Code=106`，失败目录为 `http://su.example.com:8088/index.sucatalog`，与系统 `CatalogURL` 值一致。当前更新目录设置者与目的尚不明，本阶段未修改该系统偏好；随办的 USB 安装与启动已单独验证成功。

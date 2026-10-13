@@ -81,7 +81,7 @@ struct ScheduledTasksView: View {
             Text("请关闭低电量模式，它会限制自动锁定设置。")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("打开系统设置", systemImage: "gear") { openSettings() }
+                Button("随办权限设置", systemImage: "gear") { openSettings() }
                     .accessibilityIdentifier("scheduledOpenSettings")
                 Spacer()
                 Button("复制路径", systemImage: "doc.on.doc") {
@@ -90,7 +90,9 @@ struct ScheduledTasksView: View {
                 }.accessibilityIdentifier("scheduledCopySettingsPath")
             }.buttonStyle(.borderless)
             if let settingsHint { Text(settingsHint).font(.caption).foregroundStyle(.secondary) }
-        } header: { Text("执行前准备") } footer: { Text("按钮打开随办的系统设置页，请返回设置首页按上述路径调整；随办不能替你修改系统自动锁定。") }
+        } header: { Text("执行前准备") } footer: {
+            Text("“随办权限设置”打开随办的专属设置页。调整自动锁定请返回设置首页，进入“显示与亮度 → 自动锁定 → 永不”，完成后回到随办开启自动执行。")
+        }
     }
 
     private func edit(_ task: ScheduledPhoneTask?) { editingTask = task; showingEditor = true }
