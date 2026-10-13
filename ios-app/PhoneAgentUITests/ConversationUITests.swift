@@ -337,8 +337,8 @@ import XCTest
         XCTAssertEqual(title.frame.minY, titleY, accuracy: 1)
         capture("settings")
         app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["ESP32 控制"].waitForExistence(timeout: 5))
-        XCTAssertLessThan(app.navigationBars["ESP32 控制"].staticTexts["ESP32 控制"].frame.height, 30)
+        XCTAssertTrue(app.navigationBars["随办硬件v1 控制"].waitForExistence(timeout: 5))
+        XCTAssertLessThan(app.navigationBars["随办硬件v1 控制"].staticTexts["随办硬件v1 控制"].frame.height, 30)
         XCTAssertFalse(app.buttons["startScreenCapture"].exists)
         capture("device-panel")
     }
@@ -431,9 +431,9 @@ import XCTest
         saveConfiguration()
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["deviceControlMode"].tap()
-        app.buttons["ESP32 NCM"].tap()
+        app.buttons["随办硬件v1"].tap()
         app.buttons["esp32ControlSettings"].tap()
-        XCTAssertTrue(app.navigationBars["ESP32 控制"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["随办硬件v1 控制"].waitForExistence(timeout: 5))
     }
     private func openProviders(_ app: XCUIApplication) {
         XCTAssertFalse(app.buttons["openProviders"].exists)

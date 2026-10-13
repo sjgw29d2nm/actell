@@ -5,6 +5,7 @@ import Darwin
 @main @MainActor struct PhoneAgentApp: App {
     @StateObject private var model = PhoneAgentRuntime.shared.model
     @StateObject private var statusPiP = StatusPiPController()
+    @StateObject private var scheduledTasks = PhoneAgentRuntime.shared.scheduledTasks
     @AppStorage(BackgroundPlaybackMode.defaultsKey) private var backgroundMode = BackgroundPlaybackMode.defaultMode.rawValue
     @AppStorage(BackgroundPlaybackMode.residentDefaultsKey) private var backgroundResident = false
     @Environment(\.scenePhase) private var scenePhase
@@ -19,7 +20,8 @@ import Darwin
     }
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, statusPiP: statusPiP, commands: PhoneAgentRuntime.shared.commands)
+            ContentView(model: model, statusPiP: statusPiP, commands: PhoneAgentRuntime.shared.commands,
+                        scheduledTasks: scheduledTasks)
                 .overlay {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
@@ -42,8 +44,8 @@ import Darwin
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
                     if !streamProbe { PairingFlow.shared.restoreConnection() }
                     statusPiP.setBackgroundMode(BackgroundPlaybackMode(rawValue: backgroundMode) ?? .defaultMode)
-                    statusPiP.setBackgroundResident(backgroundResident)
-                    model.liveActivities.setBackgroundResident(backgroundResident)
+                    statusPiP.setBackgroundResident(backgroundResident || scheduledTasks.isArmed)
+                    model.liveActivities.setBackgroundResident(backgroundResident || scheduledTasks.isArmed)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--task-pip-probe") {
@@ -66,8 +68,12 @@ import Darwin
                     statusPiP.setBackgroundMode(BackgroundPlaybackMode(rawValue: value) ?? .defaultMode)
                 }
                 .onChange(of: backgroundResident) { _, enabled in
-                    statusPiP.setBackgroundResident(enabled)
-                    model.liveActivities.setBackgroundResident(enabled)
+                    statusPiP.setBackgroundResident(enabled || scheduledTasks.isArmed)
+                    model.liveActivities.setBackgroundResident(enabled || scheduledTasks.isArmed)
+                }
+                .onChange(of: scheduledTasks.isArmed) { _, enabled in
+                    statusPiP.setBackgroundResident(backgroundResident || enabled)
+                    model.liveActivities.setBackgroundResident(backgroundResident || enabled)
                 }
                 .onChange(of: model.approval?.id) { _, id in
                     #if DEBUG
@@ -79,6 +85,8 @@ import Darwin
                     else if phase == .active { PairingFlow.shared.resume() }
                     model.setScene(phase == .active ? .active : phase == .background ? .background : .inactive)
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
+                    scheduledTasks.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
+                    scheduledTasks.setForeground(phase == .active)
                     if phase == .active { PhoneAgentRuntime.shared.commands.resumePendingExecutions() }
                     // Inactive is a transition, not a request to show PiP.
                     if phase == .active { statusPiP.setForeground(true) }
@@ -90,6 +98,8 @@ import Darwin
                     #endif
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+                    scheduledTasks.setArmed(false)
+                    scheduledTasks.setForeground(false)
                     PairingFlow.shared.applicationWillTerminate()
                     statusPiP.setBackgroundResident(false)
                     statusPiP.setTaskRunning(false)
@@ -98,9 +108,11 @@ import Darwin
                     PairingFlow.shared.cancel()
                     statusPiP.setTaskRunning(false)
                     model.setProtectedDataAvailable(false)
+                    scheduledTasks.setProtectedDataAvailable(false)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
                     model.setProtectedDataAvailable(true)
+                    scheduledTasks.setProtectedDataAvailable(true)
                     PhoneAgentRuntime.shared.commands.resumePendingExecutions()
                 }
         }

@@ -6,6 +6,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      build_only:
+        description: 'Only check sources and build the unsigned device app'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
         run: .build/qa-venv/bin/python ios-app/scripts/check_source.py
 
       - name: Check USB wire contract
+        if: github.event_name != 'workflow_dispatch' || !inputs.build_only
         run: .build/qa-venv/bin/python ios-app/scripts/test_contract.py
 
       - name: Check patch formatting
@@ -57,6 +63,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check USB Device protocol and TCP loopback
+        if: github.event_name != 'workflow_dispatch' || !inputs.build_only
         run: CC=clang bash tools/test_usb_device.sh
 
       - name: Select Xcode and prepare Rust targets
@@ -104,6 +111,7 @@ jobs:
           retention-days: 7
 
       - name: Select an iOS 27 iPhone simulator
+        if: github.event_name != 'workflow_dispatch' || !inputs.build_only
         id: simulator
         run: |
           simulator_id="$(xcrun simctl list devices available --json | python3 -c 'import json, sys; devices=json.load(sys.stdin)["devices"]; candidates=[device["udid"] for runtime, entries in devices.items() if runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-27") for device in entries if device.get("isAvailable") and device.get("name", "").startswith("iPhone")]; print(candidates[0] if candidates else "")')"
@@ -114,11 +122,13 @@ jobs:
           echo "udid=$simulator_id" >> "$GITHUB_OUTPUT"
 
       - name: Boot simulator for UI fixtures
+        if: github.event_name != 'workflow_dispatch' || !inputs.build_only
         run: |
           xcrun simctl boot '${{ steps.simulator.outputs.udid }}' || true
           xcrun simctl bootstatus '${{ steps.simulator.outputs.udid }}' -b
 
       - name: Run core and UI tests
+        if: github.event_name != 'workflow_dispatch' || !inputs.build_only
         env:
           RUN_UI_TESTS: '1'
         run: bash ios-app/scripts/test_core.sh '${{ steps.simulator.outputs.udid }}'

@@ -5,9 +5,18 @@ import Foundation
     static let shared = PhoneAgentRuntime()
     let model: AgentViewModel
     let commands: SessionCommandService
+    lazy var scheduledTasks = ScheduledTaskController(model: model, commands: commands)
     private init() {
         model = Self.makeModel()
         commands = SessionCommandService(sessions: model.sessions, runner: model)
+        model.createConversationSchedule = { [weak self] proposal, identity, providerID, modelID, endpoint in
+            guard let self else { throw AppError.stopped }
+            return try self.scheduledTasks.createFromConversation(proposal: proposal, request: proposal.request,
+                identity: identity, providerID: providerID, modelID: modelID, providerEndpoint: endpoint)
+        }
+        model.isScheduledInvocation = { [weak self] commandID, runID in
+            self?.scheduledTasks.isScheduledInvocation(commandID: commandID, runID: runID) ?? false
+        }
         applyLocalProviderSetupIfNeeded()
     }
     /// The local signer may add this file after CI; credentials never enter the repository.

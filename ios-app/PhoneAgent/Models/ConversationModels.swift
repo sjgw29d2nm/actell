@@ -68,6 +68,7 @@ struct ToolStep: Codable, Sendable, Equatable {
         return value
     }
     var symbol: String {
+        if name == "schedule_task" || name == "run_task_now" { return "clock" }
         let operation = AgentActivityAttributes.Operation.tool(name)
         return operation == .processing ? "wrench.and.screwdriver" : operation.symbol
     }
@@ -81,6 +82,8 @@ struct ToolStep: Codable, Sendable, Equatable {
         case "launch_app": return "启动 App"
         case "type_text": return "输入文本"
         case "wait": return "等待"
+        case "schedule_task": return "安排任务"
+        case "run_task_now": return "确认执行时间"
         case "finish": return "结束本轮"
         case "load_skill": return "加载技能" + (skillName.map { " · " + $0 } ?? "")
         default: return name

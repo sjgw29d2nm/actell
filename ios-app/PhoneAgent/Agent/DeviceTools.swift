@@ -75,19 +75,40 @@ actor ActionCoordinator {
     private var pendingCallID: String?
     private var authorizationStage = "none"
     private let diagnostics: USBDiagnosticsLog?
+    private enum TimingDecision { case pending, immediate, scheduled }
+    private var timingDecision: TimingDecision
+    private var savedScheduleReceipt: String?
 
     init(bridge: any DeviceBridge, limits: AgentLimits, approve: @escaping @Sendable (Approval) async -> Bool,
          onImage: @escaping @Sendable (FrameImage, String) async -> Void, onReceipt: @escaping @Sendable (String) async -> Void,
          onExecuting: @escaping @Sendable (String, String) async -> Void = { _, _ in },
          lifecycle: RunLifecycleCoordinator? = nil, generation: UUID = UUID(),
-         authorizationMode: InputAuthorizationMode = .perAction, diagnostics: USBDiagnosticsLog? = nil) {
+         authorizationMode: InputAuthorizationMode = .perAction, diagnostics: USBDiagnosticsLog? = nil,
+         requiresTimingDecision: Bool = false) {
         self.bridge = bridge; self.limits = limits; self.approve = approve; self.onImage = onImage; self.onReceipt = onReceipt; self.onExecuting = onExecuting
         self.lifecycle = lifecycle; self.generation = generation
         self.authorizationMode = authorizationMode
         self.diagnostics = diagnostics
+        timingDecision = requiresTimingDecision ? .pending : .immediate
     }
+    func authorizeImmediateTask() throws {
+        try checkActive()
+        guard timingDecision != .scheduled else { throw AppError.invalid("本轮已安排为定时任务，不会提前操作手机") }
+        timingDecision = .immediate
+    }
+    func validateScheduleDecision() throws -> String? {
+        try checkActive()
+        guard timingDecision != .immediate else { throw AppError.invalid("本轮已选择现在执行；请用新的消息安排定时任务") }
+        return savedScheduleReceipt
+    }
+    // The durable save has already succeeded. Never report it as failed merely
+    // because Stop won while this actor callback was queued.
+    func markScheduleSaved(receipt: String) { timingDecision = .scheduled; savedScheduleReceipt = receipt }
     func execute(name: String, parameters p: [String: Any], callID: String) async throws -> AgentToolResult {
         try checkActive()
+        if ["screenshot", "tap", "drag", "home", "list_apps", "launch_app", "type_text"].contains(name), timingDecision != .immediate {
+            throw AppError.invalid(timingDecision == .scheduled ? "任务已安排，到点前不会操作手机" : "请先确认用户要现在执行还是安排时间；使用 run_task_now 或 schedule_task，时间不明确时先补问")
+        }
         let isInput = ["tap", "drag", "home", "launch_app", "type_text"].contains(name)
         if isInput {
             guard !inputInFlight else { throw AppError.unavailable("已有输入动作正在执行") }
