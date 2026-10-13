@@ -582,3 +582,12 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - App 硬件页改为四个区域：设备连接、手机网络只读、硬件网络、手机操控验证；备用热点和维护／连接记录折叠。灰按钮显示占用／蓝牙／固件／名称原因，未连蓝牙时可点重连。SSID 初始填充修复，开放网络无需密码；入网成功但局域网不互通单独报告，具体失败码只显示固件公开静态码或规范 wifi_<UInt16>，不输出密码或 token。错误呈现合成检查 15 合法／7 非法通过。
 - **产品无线要求更新为支持 2.4GHz 与 5GHz，并保留手机原网络**，不把改路由器或寻找 2.4GHz 当成用户的正常使用前提。当前 v1 的 [ESP32-S3](https://www.espressif.com/en/products/socs/esp32-s3) 射频只支持 2.4GHz，无法通过固件升级补出 5GHz；App 明确显示现板能力，不能把此限制伪装成 Wi-Fi 配置冲突。
 - 可评估保留 S3 的 USB Device/NCM 与 BLE，增加 [ESP32-C5 双频通信](https://documentation.espressif.com/esp32-c5_datasheet_en.html)，经官方 [ESP-Hosted MCU](https://github.com/espressif/esp-hosted-mcu) 的 SPI 等 MCU 通道接入。C5 的 USB Serial/JTAG 不等于 S3 的通用 USB OTG/NCM，不能作无需改板的直接替换。此处为核对官方能力后的方案，尚未新增硬件、引入生产驱动或完成双频适配；具体接线／可用 GPIO／镜像容量与整机验证仍需在选定硬件后确认。
+
+### 2026-10-13 · 纯蓝牙方案只读复核
+
+- 用户要求如果纯蓝牙可完成全部手机任务，就先不启用板子 Wi-Fi，并允许删除 Wi-Fi。该删除条件当前尚未满足：现版自定义 BLE 只提供诊断与配网，未有 HID 输入，任务截图仍走 CoreDevice 硬件 USB/Wi-Fi 或外部 VPN 回环。本次保持现有模块，未因能力推测删除代码或修改板子启动配置。
+- ESP-IDF 5.5.5 的内置 `esp_hid` 已有 NimBLE 键盘／鼠标实现，可作为输入原型基础：[官方示例](https://github.com/espressif/esp-idf/blob/v5.5.5/examples/bluetooth/esp_hid_device/README.md)。[Apple 辅助触控](https://support.apple.com/zh-cn/guide/iphone/iph96b21954/26/ios/26) 支持蓝牙指针设备，但相对鼠标位移不是屏幕像素；HID 通知提交成功不等于目标已被点击。中文、定位反馈、多指手势、停止释放、HID 与自定义服务共存及重连仍待实现和实机验收。
+- 板子无 Wi-Fi 的可评估链路为：手机本地跨 App 采集 → 手机自身网络调用模型 → BLE 命令 → 板子 HID 输入。图像无需经 BLE 传输，手机可以继续使用自己的 5GHz Wi-Fi 或蜂窝网络；这里是架构方案，不是已可用功能。
+- 当前 ScreenCaptureKit 实现只在 iOS 27 开启。iOS 26.5 的 `RPScreenRecorder.startCapture` 只采集本 App；系统级跨 App 采集需要 ReplayKit Broadcast Upload 扩展，由用户通过系统按钮确认开始。[Apple RPScreenRecorder](https://developer.apple.com/documentation/replaykit/rpscreenrecorder)、[Apple WWDC18 系统广播](https://devstreaming-cdn.apple.com/videos/wwdc/2018/601nz4m863hyf0/601/601_live_screen_broadcast_with_replaykit.pdf)。广播本身不保证主 App 的 AI 循环无限后台运行，仍需保持解锁和有效的运行资格。
+- 当前提供的签名授权只读核对：主 App true、独立广播扩展 false、拟定共享 App Group false。若采用标准共享组传递最新帧，主 App 与扩展需匹配该组，扩展需独立描述文件。现有主 App 显式 App ID 不能覆盖另一个扩展。此真实签名缺口尚未补齐，不宣称完整纯 BLE 安装或 USB 全能力替代已完成。
+- 下一阶段验收顺序：先只在随办自己的测试页面验证 BLE 键鼠及停止释放；再接入合法跨 App 采集与匹配签名；最后验证真实任务、中文／拖动／重连与后台条件。完整闭环通过后，再按用户要求关闭并移除板子 Wi-Fi。只读复核没有新增生产依赖、烧录板子或操作手机输入。
