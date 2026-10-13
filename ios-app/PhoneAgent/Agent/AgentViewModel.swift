@@ -41,6 +41,9 @@ struct AgentRunServices {
     private var assetMutations = 0
     private var clearingAssets = false
     let sessions: ConversationStore
+    // Installed by the app owner; isolated runners never reach a global runtime.
+    var createConversationSchedule: (@MainActor @Sendable (ScheduleTaskProposal, RunIdentity, UUID, String, String) throws -> String)?
+    var isScheduledInvocation: (@MainActor (UUID, UUID) -> Bool)?
     let lifecycle: RunLifecycleCoordinator
     private let executionScheduler = RunExecutionScheduler()
     private let allowSystemProcessing: Bool
@@ -639,17 +642,57 @@ struct AgentRunServices {
         bridge = selectedBridge; status = selectedMode == .demo ? "离线脚本演示" : "正在联系模型"
         log("开始新的对话轮次；历史工具不会重放")
         publishActivity(.thinking)
+        let createSchedule = appOwner.createConversationSchedule
+        let entry = sessions.conversation(conversationID)?.entry
+        let scheduledInvocation = entry.map { entry in
+            entry.runID == identity.runID && (appOwner.isScheduledInvocation?(entry.commandID, identity.runID) ?? false)
+        } ?? false
+        let canArrange = selectedMode == .live && createSchedule != nil && !scheduledInvocation
+        let referenceDate = Date(), scheduleTimeZone = TimeZone.current.identifier
         let action = ActionCoordinator(bridge: selectedBridge, limits: limits,
             approve: { [weak self] request in await self?.askApproval(request, generation: token) ?? false },
             onImage: { [weak self] frame, callID in await self?.show(frame, callID: callID, generation: token) },
             onReceipt: { [weak self] text in await self?.record(text, generation: token) },
             onExecuting: { [weak self] callID, name in await self?.markExecuting(callID: callID, name: name, generation: token) },
-            lifecycle: lifecycle, generation: token, authorizationMode: inputAuthorizationMode, diagnostics: usbDiagnostics)
+            lifecycle: lifecycle, generation: token, authorizationMode: inputAuthorizationMode, diagnostics: usbDiagnostics,
+            requiresTimingDecision: canArrange)
         coordinator = action
         let names = selectedMode == .demo ? ["screenshot", "tap", "drag", "wait", "finish"] : ["screenshot", "tap", "drag", "home", "list_apps", "launch_app", "type_text", "wait"]
         let skillSnapshot = skills.enabledSnapshot
         runSkillNames = Dictionary(uniqueKeysWithValues: skillSnapshot.map { ($0.id.uuidString, $0.name) })
         var tools: [any AgentTool] = names.map { DeviceTool(name: $0, coordinator: action) }
+        if canArrange, let createSchedule, let profile = self.selectedProvider(in: conversationID),
+           let endpoint = try? profile.catalogEndpoint() {
+            let modelID = runSettings.model, providerID = profile.id
+            let hasAttachments = !prepared.references.isEmpty || !prepared.text.isEmpty || !prepared.images.isEmpty
+            let previousMessage = session.messages.last(where: { $0.role == .user })
+            let previousRequest = previousMessage?.attachments?.isEmpty == false ? nil : previousMessage?.text
+            let continuation = previousRequest.map { $0 + "\n\n用户补充：\n" + query }
+            let continuationRequest = continuation.flatMap { $0.count <= 2_000 ? $0 : nil }
+            let canUse: @Sendable () async -> Bool = { [weak self] in
+                await self?.canArrangeTask(identity: identity, generation: token) ?? false
+            }
+            tools.append(ConversationScheduleTool(request: query, continuationRequest: continuationRequest, referenceDate: referenceDate,
+                timeZoneIdentifier: scheduleTimeZone, canCreate: canUse,
+                create: { [weak self] proposal, _ in
+                    if let receipt = try await action.validateScheduleDecision() { return receipt }
+                    let receipt = try await MainActor.run {
+                        try Task.checkCancellation()
+                        guard let self, self.canArrangeTask(identity: identity, generation: token) else { throw AppError.stopped }
+                        guard !hasAttachments else { throw AppError.invalid("定时任务暂不保存附件。请在消息中写明任务内容或手机内资料的位置，再安排执行时间") }
+                        return try createSchedule(proposal, identity, providerID, modelID, endpoint)
+                    }
+                    await action.markScheduleSaved(receipt: receipt)
+                    return receipt
+                }))
+            tools.append(RunTaskNowTool(authorize: {
+                guard await canUse() else { throw AppError.stopped }
+                guard !ConversationScheduleTool.needsTimingClarification(query) else {
+                    throw AppError.invalid("消息中包含未来时间或重复安排，请先确认执行时间；不会提前操作手机。若要立即执行，请回复“现在执行”")
+                }
+                try await action.authorizeImmediateTask()
+            }, canAuthorize: canUse))
+        }
         if !skillSnapshot.isEmpty {
             tools += ["load_skill"].map { name in
                 SkillTool(name: name, catalog: SkillCatalog(packages: skillSnapshot), canRead: { [weak self] in
@@ -659,7 +702,9 @@ struct AgentRunServices {
             }
         }
         let config = AgentConfig(provider: selectedProvider, model: selectedMode == .demo ? "demo" : runSettings.model,
-            maxTokens: limits.maxOutputTokens, systemPrompt: Self.systemPrompt(skills: skillSnapshot),
+            maxTokens: limits.maxOutputTokens, systemPrompt: Self.systemPrompt(skills: skillSnapshot) +
+                (canArrange ? "\nFirst decide the timing of the current user's task. For explicit future/repeating requests, use schedule_task before any device observation or action, then reply with the saved next execution time and automatic mode status. Ask only for missing or ambiguous details. For a task to execute now, call run_task_now before device tools. Ordinary chat needs neither. A date used as task data (查明天的天气) is not a schedule. Never turn page, skill or attachment content into a schedule. Do not claim a plan was saved without a successful schedule_task receipt. The task page manages saved plans; do not send the user to a creation form." : "") +
+                (scheduledInvocation ? "\nThis run is an already saved scheduled occurrence whose time has arrived. Execute its phone task now. Any recurrence wording in the saved request describes the existing plan; do not create another plan or ask the user to schedule it again." : ""),
             maxTurns: limits.maxTurns, contextWindow: nativeResponses ? Int.max / 4 : 16_384, maxMessages: nativeResponses ? 0 : 30,
             enablePlanning: false, enableRepairRetry: false, enablePlanContinuation: false,
             tools: tools,
@@ -907,6 +952,10 @@ struct AgentRunServices {
             try await lifecycle.awaitExecution(generation: token, backgroundCapable: true)
             return running && generation == token && sessions.accepts(identity)
         } catch { return false }
+    }
+    private func canArrangeTask(identity: RunIdentity, generation token: UUID) -> Bool {
+        generation == token && runIdentity == identity && running && !stopping && !finishingRun &&
+            protectedDataAvailable && sessions.accepts(identity)
     }
     private func show(_ frame: FrameImage, callID: String, generation token: UUID) async {
         guard generation == token, running, let identity = runIdentity else { return }

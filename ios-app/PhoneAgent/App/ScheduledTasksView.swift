@@ -4,10 +4,19 @@ import UIKit
 struct ScheduledTasksView: View {
     @ObservedObject var controller: ScheduledTaskController
     let openConversation: (UUID) -> Void
+    let startConversation: (String?) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var showingEditor = false
     @State private var editingTask: ScheduledPhoneTask?
     @State private var settingsHint: String?
+    private let sameAppExample = "每天晚上8点在提醒事项中整理当天到期与逾期待办，按截止时间排序并给我汇总，不修改原待办"
+    private let crossAppExample = "每周五晚上6点在Safari查上海周末天气，在备忘录创建注明日期的出行清单并核对保存"
+
+    init(controller: ScheduledTaskController, openConversation: @escaping (UUID) -> Void,
+         startConversation: @escaping (String?) -> Void) {
+        self.controller = controller
+        self.openConversation = openConversation
+        self.startConversation = startConversation
+    }
 
     var body: some View {
         List {
@@ -23,11 +32,11 @@ struct ScheduledTasksView: View {
             Section {
                 if controller.tasks.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("把复杂的事安排好").font(.headline)
-                        Text("同一个 App 内的多步操作，或跨 App 查资料、整理结果、填表，都可以写成一个任务。")
+                        Text("在对话里安排任务").font(.headline)
+                        Text("直接在对话里说明目标和时间，随办会生成安排；这里查看、修改和停用。同一个 App 内的多步操作和跨 App 办事都可以安排。")
                             .font(.subheadline).foregroundStyle(.secondary)
-                        Button("新建定时任务") { edit(nil) }.padding(.top, 4)
-                            .accessibilityIdentifier("scheduledCreateEmpty")
+                        Button("去对话安排") { startConversation(nil) }.padding(.top, 4)
+                            .accessibilityIdentifier("scheduledStartConversation")
                     }.padding(.vertical, 8)
                 }
                 ForEach(controller.tasks, id: \.id) { task in
@@ -52,20 +61,33 @@ struct ScheduledTasksView: View {
                         }.padding(.vertical, 4)
                     }.accessibilityIdentifier("scheduledTask-" + task.id.uuidString)
                 }
-            } header: { Text("定时任务") }
-        }
-        .navigationTitle("定时任务").navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
-            ToolbarItem(placement: .primaryAction) {
-                Button("新建", systemImage: "plus") { edit(nil) }.accessibilityIdentifier("scheduledCreate")
+                if !controller.tasks.isEmpty {
+                    Button("去对话安排新任务") { startConversation(nil) }
+                        .accessibilityIdentifier("scheduledStartConversation")
+                }
+            } header: { Text("任务安排") }
+            if controller.tasks.isEmpty {
+                Section {
+                    Button { startConversation(sameAppExample) } label: {
+                        Text(sameAppExample).multilineTextAlignment(.leading)
+                    }.accessibilityIdentifier("scheduledExampleSameApp")
+                    Button { startConversation(crossAppExample) } label: {
+                        Text(crossAppExample).multilineTextAlignment(.leading)
+                    }.accessibilityIdentifier("scheduledExampleCrossApp")
+                } header: { Text("试着这样说") } footer: {
+                    Text("示例只会填入对话；发送后随办再根据你的目标和时间生成安排。")
+                }
             }
         }
-        .sheet(isPresented: $showingEditor) {
-            ScheduledTaskEditor(controller: controller, task: editingTask)
+        .navigationTitle("任务安排").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } }
+        }
+        .sheet(item: $editingTask) { task in
+            ScheduledTaskEditor(controller: controller, task: task)
         }
         .alert("未能完成操作", isPresented: Binding(
-            get: { controller.errorMessage != nil && !showingEditor },
+            get: { controller.errorMessage != nil && editingTask == nil },
             set: { if !$0 { controller.clearError() } }
         )) { Button("好") { controller.clearError() } } message: { Text(controller.errorMessage ?? "请稍后重试。") }
     }
@@ -95,7 +117,7 @@ struct ScheduledTasksView: View {
         }
     }
 
-    private func edit(_ task: ScheduledPhoneTask?) { editingTask = task; showingEditor = true }
+    private func edit(_ task: ScheduledPhoneTask) { editingTask = task }
     private func openSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url, options: [:]) { success in
@@ -189,13 +211,13 @@ private struct ScheduledTaskDetailView: View {
                     }
                 }
                 Section {
-                    Button("删除定时任务", role: .destructive) { confirmingDelete = true }
+                    Button("删除任务安排", role: .destructive) { confirmingDelete = true }
                         .disabled(active).accessibilityIdentifier("scheduledDelete")
                 }
-            } else { Text("此定时任务已删除。") }
+            } else { Text("此任务安排已删除。") }
         }
         .navigationTitle(task?.name ?? "任务详情").navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("删除这个定时任务？", isPresented: $confirmingDelete, titleVisibility: .visible) {
+        .confirmationDialog("删除这个任务安排？", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("删除任务", role: .destructive) {
                 controller.delete(id: taskID)
                 if task == nil { dismiss() }
@@ -207,7 +229,7 @@ private struct ScheduledTaskDetailView: View {
 
 private struct ScheduledTaskEditor: View {
     @ObservedObject var controller: ScheduledTaskController
-    let task: ScheduledPhoneTask?
+    let task: ScheduledPhoneTask
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var goal: String
@@ -215,13 +237,13 @@ private struct ScheduledTaskEditor: View {
     @State private var firstRunAt: Date
     @State private var repetition: TaskScheduleRepeat
 
-    init(controller: ScheduledTaskController, task: ScheduledPhoneTask?) {
+    init(controller: ScheduledTaskController, task: ScheduledPhoneTask) {
         self.controller = controller; self.task = task
-        _name = State(initialValue: task?.name ?? "")
-        _goal = State(initialValue: task?.goal ?? "")
-        _requirements = State(initialValue: task?.requirements ?? "")
-        _firstRunAt = State(initialValue: max(task?.nextRunAt ?? Date().addingTimeInterval(300), Date().addingTimeInterval(60)))
-        _repetition = State(initialValue: task?.repetition ?? .once)
+        _name = State(initialValue: task.name)
+        _goal = State(initialValue: task.goal)
+        _requirements = State(initialValue: task.requirements)
+        _firstRunAt = State(initialValue: max(task.nextRunAt ?? Date().addingTimeInterval(300), Date().addingTimeInterval(60)))
+        _repetition = State(initialValue: task.repetition)
     }
 
     var body: some View {
@@ -239,27 +261,13 @@ private struct ScheduledTaskEditor: View {
                     }
                 } header: { Text("任务内容") } footer: { Text("写清使用哪个 App、要处理哪些内容，以及结果是什么。同 App 内和跨 App 的多步任务都支持这样描述。") }
                 Section("执行时间") {
-                    DatePicker("首次执行", selection: $firstRunAt, displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("下次执行", selection: $firstRunAt, displayedComponents: [.date, .hourAndMinute])
                         .accessibilityIdentifier("scheduledFirstRunAt")
                     Picker("重复", selection: $repetition) {
                         ForEach(TaskScheduleRepeat.allCases, id: \.self) { Text($0.title).tag($0) }
                     }.accessibilityIdentifier("scheduledRepeat")
                     Text("保存时区：\(TimeZone.current.identifier)")
                         .font(.caption).foregroundStyle(.secondary)
-                }
-                if task == nil {
-                    Section("试试这些任务") {
-                        Button("同 App：查找并整理待办") {
-                            name = "整理今天的待办"
-                            goal = "在提醒事项 App 中，查看今天到期和已逾期的待办，整理需要我处理的事项。"
-                            requirements = "按截止时间排序，写明事项、所属列表和到期时间；把结果保存在随办会话中，不修改原待办。"
-                        }.accessibilityIdentifier("scheduledExampleSameApp")
-                        Button("跨 App：查天气并整理清单") {
-                            name = "出行清单"
-                            goal = "在 Safari 查询上海明天的天气，比较两个来源，再到备忘录整理出行清单。"
-                            requirements = "写明日期、气温、降雨和出行建议，保留来源链接；新笔记以“出行清单”和日期命名，并核对保存结果。"
-                        }.accessibilityIdentifier("scheduledExampleCrossApp")
-                    }
                 }
                 Section {
                     Label("手机需插电并保持解锁", systemImage: "iphone")
@@ -269,14 +277,14 @@ private struct ScheduledTaskEditor: View {
                     Text("保存即授权随办到时将任务和相关截图发送给已选择的模型执行。所选供应商与模型会随任务保存。受阻时会记录原因，中断后需要核对再执行。错过时间超过 5 分钟不会自动补跑。")
                 }
             }
-            .navigationTitle(task == nil ? "新建定时任务" : "编辑定时任务")
+            .navigationTitle("编辑任务安排")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         if controller.save(name: name, goal: goal, requirements: requirements,
-                                           firstRunAt: firstRunAt, repetition: repetition, replacingID: task?.id) { dismiss() }
+                                           firstRunAt: firstRunAt, repetition: repetition, replacingID: task.id) { dismiss() }
                     }.accessibilityIdentifier("scheduledSave")
                 }
             }

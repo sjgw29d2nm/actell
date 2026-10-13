@@ -59,6 +59,10 @@ struct ScheduledPhoneTask: Identifiable, Codable, Equatable, Sendable {
     var modelID: String
     // Public endpoint identity only. API keys remain in the provider Keychain.
     var providerEndpoint: String
+    // One explicit human request may create only one plan, even when the
+    // model retries with a new tool-call identity. Older/manual plans omit it.
+    var sourceConversationID: UUID? = nil
+    var sourceRunID: UUID? = nil
     var isEnabled = true
     var needsReview = false
     var nextRunAt: Date?
@@ -133,6 +137,9 @@ struct ScheduledPhoneTask: Identifiable, Codable, Equatable, Sendable {
         guard !modelID.isEmpty, modelID.count <= 512,
               !providerEndpoint.isEmpty, providerEndpoint.count <= 2_048 else {
             throw AppError.invalid("任务的模型配置不可用，请重新选择供应商与模型")
+        }
+        guard (sourceConversationID == nil) == (sourceRunID == nil) else {
+            throw AppError.invalid("任务来源记录不完整，暂不能修改")
         }
         guard runs.count <= TaskScheduleStore.maximumRunsPerTask,
               Set(runs.map(\.id)).count == runs.count else {
@@ -252,6 +259,10 @@ struct ScheduledPhoneTask: Identifiable, Codable, Equatable, Sendable {
         let commandIDs = tasks.flatMap { $0.runs.map(\.id) }
         guard Set(commandIDs).count == commandIDs.count else {
             throw AppError.invalid("任务运行记录存在重复，暂不能修改")
+        }
+        let sourceRuns = tasks.compactMap(\.sourceRunID)
+        guard Set(sourceRuns).count == sourceRuns.count else {
+            throw AppError.invalid("同一次用户请求存在重复计划，暂不能修改")
         }
         for task in tasks { try task.validate() }
     }

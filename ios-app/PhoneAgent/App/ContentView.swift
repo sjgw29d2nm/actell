@@ -31,7 +31,7 @@ struct ContentView: View {
                     List {
                         if !scheduledTasks.tasks.isEmpty || scheduledTasks.isArmed {
                             Button { panel = .scheduled } label: {
-                                Label(scheduledTasks.isArmed ? scheduledTasks.statusText : "定时任务 · \(scheduledTasks.tasks.count) 个", systemImage: "clock")
+                                Label(scheduledTasks.isArmed ? scheduledTasks.statusText : "任务安排 · \(scheduledTasks.tasks.count) 个", systemImage: "clock")
                                     .font(.subheadline)
                             }.accessibilityIdentifier("scheduledTasksSummary")
                         }
@@ -56,7 +56,7 @@ struct ContentView: View {
                         .frame(width: 78, height: 26).foregroundStyle(.primary).accessibilityLabel("随办")
                 }
                 ToolbarItem(placement: .topBarLeading) { Button { panel = .settings } label: { Image(systemName: "gear") }.accessibilityLabel("设置") }
-                ToolbarItem(placement: .topBarTrailing) { Button { panel = .scheduled } label: { Image(systemName: "clock") }.accessibilityLabel("定时任务").accessibilityIdentifier("openScheduledTasks") }
+                ToolbarItem(placement: .topBarTrailing) { Button { panel = .scheduled } label: { Image(systemName: "clock") }.accessibilityLabel("查看任务安排").accessibilityIdentifier("openScheduledTasks") }
                 ToolbarItem(placement: .topBarTrailing) { Button(action: createConversation) { Image(systemName: "square.and.pencil") }.accessibilityLabel("新建会话").accessibilityIdentifier("newConversationToolbar") }
             }
             .navigationDestination(for: UUID.self) { id in
@@ -67,10 +67,15 @@ struct ContentView: View {
                 case .settings: SettingsView(model: model)
                 case .scheduled:
                     NavigationStack {
-                        ScheduledTasksView(controller: scheduledTasks) { id in
+                        ScheduledTasksView(controller: scheduledTasks, openConversation: { id in
                             guard sessions.conversation(id) != nil else { scheduledTasks.reportMissingConversation(); return }
                             panel = nil; path = [id]
-                        }
+                        }, startConversation: { text in
+                            panel = nil
+                            let id = model.createConversationDraft(mode: .live)
+                            if let text { sessions.setDraft(text, in: id) }
+                            path = [id]
+                        })
                     }
                 }
             }
@@ -123,7 +128,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.large)
                     .accessibilityIdentifier("newConversation")
                     Button { panel = .scheduled } label: {
-                        Label("安排定时任务", systemImage: "clock")
+                        Label("查看任务安排", systemImage: "clock")
                     }.font(.subheadline).accessibilityIdentifier("scheduledTasksEmptyEntry")
                 }
                 .padding(.horizontal, 28).padding(.top, 72).padding(.bottom, 40)

@@ -98,12 +98,107 @@ import UIKit
                 guard let index = next.firstIndex(where: { $0.id == replacingID }) else { errorMessage = "任务已不存在"; return false }
                 value.id = replacingID; value.runs = next[index].runs
                 value.isEnabled = next[index].isEnabled; value.needsReview = next[index].needsReview
+                value.sourceConversationID = next[index].sourceConversationID
+                value.sourceRunID = next[index].sourceRunID
                 next[index] = value
             } else { next.insert(value, at: 0) }
             return commit(next)
         } catch {
             errorMessage = (error as? AppError)?.localizedDescription ?? "任务未保存，请检查目标、执行时间及设置中的模型"; return false
         }
+    }
+    /// Only exact human messages can authorize a plan. A reply supplying the
+    /// missing time may continue the immediately previous human message; model
+    /// goals, assistant text, attachments and observed instructions are excluded.
+    func createFromConversation(proposal: ScheduleTaskProposal, request: String, identity: RunIdentity,
+                                providerID: UUID, modelID: String, providerEndpoint: String) throws -> String {
+        guard protectedDataAvailable,
+              model.sessions.accepts(identity),
+              let worker = model.existingExecutionModel(for: identity.conversationID),
+              worker.ownedRun == identity, worker.running, !worker.stopping,
+              let session = model.sessions.conversation(identity.conversationID),
+              let currentIndex = session.messages.firstIndex(where: { $0.runID == identity.runID && $0.role == .user }) else {
+            throw AppError.unavailable("当前用户请求已结束或手机已锁定，定时任务未创建")
+        }
+        let current = session.messages[currentIndex]
+        guard (current.attachments ?? []).isEmpty else {
+            throw AppError.invalid("定时任务暂不保存附件，请在消息中写明完整任务内容或手机内资料的位置")
+        }
+        let previous = session.messages[..<currentIndex].last(where: { $0.role == .user })
+        let continuation = previous.flatMap { message -> String? in
+            guard (message.attachments ?? []).isEmpty,
+                  !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            let combined = message.text + "\n\n用户补充：\n" + current.text
+            return combined.count <= 2_000 ? combined : nil
+        }
+        guard request == proposal.request, request.count <= 2_000,
+              request == current.text || request == continuation else {
+            throw AppError.invalid("任务内容只能使用这条完整用户消息，或无附件的上一条用户任务加本次时间补充；不能改写或引用其他内容")
+        }
+        if let saved = tasks.first(where: { $0.sourceRunID == identity.runID }) {
+            guard saved.sourceConversationID == identity.conversationID else {
+                throw AppError.invalid("任务来源不一致，定时任务未创建")
+            }
+            return try conversationReceipt(for: saved)
+        }
+        guard store != nil else { throw AppError.unavailable("定时记录不可用，任务未创建；请先处理存储问题") }
+        let evidence = proposal.timeEvidence.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !evidence.isEmpty, evidence.count <= 120, current.text.contains(evidence) else {
+            throw AppError.invalid("执行时间必须来自你这条消息的原文；请补充明确的时间")
+        }
+        guard let profile = model.providers.profile(providerID),
+              (try? profile.catalogEndpoint()) == providerEndpoint else {
+            throw AppError.unavailable("本轮模型供应商已改变，任务未创建；请检查设置后重新发起")
+        }
+        try profile.requireInference(model: modelID)
+        guard proposal.firstRunAt > Date() else { throw AppError.invalid("执行时间已经过去，请补充未来的明确时间") }
+        var value = ScheduledPhoneTask(name: proposal.name, goal: request, requirements: "",
+            firstRunAt: proposal.firstRunAt, timeZoneIdentifier: proposal.timeZoneIdentifier,
+            repetition: proposal.repetition, providerID: providerID, modelID: modelID,
+            providerEndpoint: providerEndpoint)
+        value.sourceConversationID = identity.conversationID
+        value.sourceRunID = identity.runID
+        try value.validate()
+        guard let due = value.nextRunAt, due > Date() else {
+            throw AppError.invalid("执行时间需要至少到下一分钟，任务未创建；请补充未来的明确时间")
+        }
+        // Build the bounded public receipt before the durable write, so a
+        // serialization error cannot make a successful creation look failed.
+        let receipt = try conversationReceipt(for: value)
+        guard commit([value] + tasks) else {
+            throw AppError.unavailable(errorMessage ?? "定时任务未保存，请解锁手机后重试")
+        }
+        return receipt // No cancellation check after a successful durable write.
+    }
+    func isScheduledInvocation(commandID: UUID, runID: UUID) -> Bool {
+        tasks.contains { task in
+            task.runs.contains { run in
+                guard run.id == commandID else { return false }
+                if let savedRunID = run.runID { return savedRunID == runID }
+                // Tool registration occurs inside execute(), before dispatch()
+                // receives and persists the newly-started run's identity.
+                guard run.dispatchAttempted, let sessionID = run.conversationID,
+                      let entry = model.sessions.conversation(sessionID)?.entry else { return false }
+                return entry.commandID == commandID && entry.runID == runID
+            }
+        }
+    }
+    private func conversationReceipt(for task: ScheduledPhoneTask) throws -> String {
+        guard let zone = TimeZone(identifier: task.timeZoneIdentifier) else {
+            throw AppError.invalid("任务时区不可用，请查看定时任务页面")
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = zone
+        let nextTime: Any = task.nextRunAt.map { formatter.string(from: $0) as Any } ?? NSNull()
+        let receipt: [String: Any] = [
+            "saved": true, "task_id": task.id.uuidString, "name": task.name,
+            "next_run_at": nextTime, "repeat": task.repetition.rawValue,
+            "time_zone": task.timeZoneIdentifier, "automatic_execution_enabled": isArmed,
+            "notice": isArmed ? "计划已保存。到点会检查解锁、供电和操控连接；执行结果请查看定时任务。" :
+                "计划已保存，自动执行模式尚未开启。请保持手机解锁，将系统自动锁定设为“永不”，接通电源后开启自动执行。"
+        ]
+        return String(decoding: try JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]), as: UTF8.self)
     }
     func setEnabled(_ enabled: Bool, id: UUID) {
         guard let index = tasks.firstIndex(where: { $0.id == id }) else { return }

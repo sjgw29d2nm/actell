@@ -149,6 +149,8 @@ struct ToolPresentation {
         case "wait": allowed = ["duration_ms"]
         case "finish": allowed = ["summary"]
         case "load_skill": allowed = ["id", "revision", "resource", "offset"]
+        case "schedule_task": allowed = ["name", "first_run_at", "repeat", "time_evidence"]
+        case "run_task_now": allowed = []
         default: return "未注册工具；不展示原始参数"
         }
         var values: [String: Any] = [:]
