@@ -21,6 +21,7 @@ pub struct RelayConnector {
     opened: AtomicBool,
     tunnel_opened: AtomicBool,
     local: Ipv4Addr,
+    subnet_mask: Ipv4Addr,
     relay: SocketAddr,
     lockdown: bool,
     relay_token: Option<Zeroizing<Vec<u8>>>,
@@ -38,6 +39,7 @@ impl RelayConnector {
             opened: AtomicBool::new(false),
             tunnel_opened: AtomicBool::new(false),
             local: Ipv4Addr::new(192, 168, 7, 2),
+            subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
             relay: ([192, 168, 7, 1], 28767).into(),
             lockdown: false,
             relay_token: None,
@@ -53,8 +55,45 @@ impl RelayConnector {
         board: Ipv4Addr,
         token: &[u8],
     ) -> io::Result<Self> {
-        if local != Ipv4Addr::new(192, 168, 8, 2)
-            || board != Ipv4Addr::new(192, 168, 8, 1)
+        if local != Ipv4Addr::new(192, 168, 8, 2) || board != Ipv4Addr::new(192, 168, 8, 1) {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        Self::new_wifi_configured_v2(
+            interface_index,
+            generation,
+            index,
+            local,
+            board,
+            Ipv4Addr::new(255, 255, 255, 0),
+            token,
+        )
+    }
+    /// A private LAN is selected explicitly by the caller; keep the same
+    /// interface, local address and subnet for every control/tunnel socket.
+    pub fn new_wifi_configured_v2(
+        interface_index: u32,
+        generation: u32,
+        index: u8,
+        local: Ipv4Addr,
+        board: Ipv4Addr,
+        subnet_mask: Ipv4Addr,
+        token: &[u8],
+    ) -> io::Result<Self> {
+        let mask = u32::from(subnet_mask);
+        let prefix = mask.leading_ones();
+        let hosts = !mask;
+        let local_host = u32::from(local) & hosts;
+        let board_host = u32::from(board) & hosts;
+        if !(8..=30).contains(&prefix)
+            || mask != u32::MAX << (32 - prefix)
+            || !local.is_private()
+            || !board.is_private()
+            || local == board
+            || u32::from(local) & mask != u32::from(board) & mask
+            || local_host == 0
+            || local_host == hosts
+            || board_host == 0
+            || board_host == hosts
             || token.len() != 64
             || !token
                 .iter()
@@ -64,6 +103,7 @@ impl RelayConnector {
         }
         let mut connector = Self::new(interface_index, generation, index)?;
         connector.local = local;
+        connector.subnet_mask = subnet_mask;
         connector.relay = (board, 28767).into();
         connector.relay_token = Some(Zeroizing::new(token.to_vec()));
         Ok(connector)
@@ -84,6 +124,7 @@ impl RelayConnector {
             opened: AtomicBool::new(false),
             tunnel_opened: AtomicBool::new(false),
             local: Ipv4Addr::LOCALHOST,
+            subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
             relay: (Ipv4Addr::LOCALHOST, port).into(),
             lockdown: false,
             relay_token: None,
@@ -119,7 +160,7 @@ impl RelayConnector {
         };
         let socket = TcpSocket::new_v4()?;
         if self.interface_index != 0 {
-            bind_interface(&socket, self.interface_index, self.local)?;
+            bind_interface(&socket, self.interface_index, self.local, self.subnet_mask)?;
         }
         socket.bind((self.local, 0).into())?;
         let mut stream = tokio::time::timeout(Duration::from_secs(4), socket.connect(self.relay))
@@ -166,7 +207,12 @@ impl NcmConnector for RelayConnector {
     }
 }
 #[cfg(target_vendor = "apple")]
-fn bind_interface(socket: &TcpSocket, index: u32, local: Ipv4Addr) -> io::Result<()> {
+fn bind_interface(
+    socket: &TcpSocket,
+    index: u32,
+    local: Ipv4Addr,
+    subnet_mask: Ipv4Addr,
+) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     // Explicit Darwin socket binding. Never fall back if permission/interface
     // validation fails. Swift independently validates the selected link type
@@ -196,7 +242,7 @@ fn bind_interface(socket: &TcpSocket, index: u32, local: Ipv4Addr) -> io::Result
             };
             let flags = row.ifa_flags as i32;
             if addr.sin_addr.s_addr.to_ne_bytes() == local.octets()
-                && mask.to_ne_bytes() == [255, 255, 255, 0]
+                && mask.to_ne_bytes() == subnet_mask.octets()
                 && flags & (libc::IFF_UP | libc::IFF_RUNNING) == (libc::IFF_UP | libc::IFF_RUNNING)
                 && flags & (libc::IFF_LOOPBACK | libc::IFF_POINTOPOINT) == 0
             {
@@ -225,7 +271,7 @@ fn bind_interface(socket: &TcpSocket, index: u32, local: Ipv4Addr) -> io::Result
     }
 }
 #[cfg(not(target_vendor = "apple"))]
-fn bind_interface(_: &TcpSocket, _: u32, _: Ipv4Addr) -> io::Result<()> {
+fn bind_interface(_: &TcpSocket, _: u32, _: Ipv4Addr, _: Ipv4Addr) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
@@ -233,6 +279,59 @@ fn bind_interface(_: &TcpSocket, _: u32, _: Ipv4Addr) -> io::Result<()> {
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
+    #[test]
+    fn dynamic_wifi_requires_distinct_private_hosts_and_contiguous_same_subnet() {
+        let token = [b'a'; 64];
+        for (local, board, mask) in [
+            ([192, 168, 1, 20], [192, 168, 1, 30], [255, 255, 255, 0]),
+            ([192, 168, 7, 2], [192, 168, 7, 3], [255, 255, 255, 0]),
+            ([172, 31, 254, 2], [172, 31, 254, 1], [255, 255, 255, 0]),
+            ([10, 42, 3, 2], [10, 42, 3, 1], [255, 0, 0, 0]),
+            ([10, 0, 0, 1], [10, 0, 0, 2], [255, 255, 255, 252]),
+        ] {
+            let connector = RelayConnector::new_wifi_configured_v2(
+                77,
+                7,
+                0,
+                local.into(),
+                board.into(),
+                mask.into(),
+                &token,
+            )
+            .unwrap();
+            assert_eq!(connector.local.octets(), local);
+            assert_eq!(connector.relay.ip(), Ipv4Addr::from(board));
+            assert_eq!(connector.subnet_mask.octets(), mask);
+        }
+        for (local, board, mask) in [
+            ([192, 168, 1, 20], [192, 168, 2, 30], [255, 255, 255, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 20], [255, 255, 255, 0]),
+            ([192, 168, 1, 0], [192, 168, 1, 30], [255, 255, 255, 0]),
+            ([192, 168, 1, 255], [192, 168, 1, 30], [255, 255, 255, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 0], [255, 255, 255, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 255], [255, 255, 255, 0]),
+            ([172, 32, 1, 20], [172, 32, 1, 30], [255, 255, 255, 0]),
+            ([8, 8, 8, 1], [8, 8, 8, 2], [255, 255, 255, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 30], [255, 0, 255, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 30], [0, 0, 0, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 30], [254, 0, 0, 0]),
+            ([192, 168, 1, 20], [192, 168, 1, 21], [255, 255, 255, 254]),
+            ([192, 168, 1, 20], [192, 168, 1, 30], [255, 255, 255, 255]),
+        ] {
+            assert!(
+                RelayConnector::new_wifi_configured_v2(
+                    77,
+                    7,
+                    0,
+                    local.into(),
+                    board.into(),
+                    mask.into(),
+                    &token
+                )
+                .is_err()
+            );
+        }
+    }
     #[test]
     fn wifi_configuration_rejects_usb_subnet_and_invalid_credentials() {
         let local = Ipv4Addr::new(192, 168, 8, 2);

@@ -91,8 +91,9 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
             case .usb:
                 return ncm_backend_start(&config, &raw, &started)
             case .wifi(let configuration):
-                return ncm_wifi_start_configured(row.index, generation, UInt32(endpoint.index), authorization.mask,
-                                                 configuration.localIPv4, configuration.boardIPv4, b[7], &raw, &started)
+                return ncm_wifi_start_configured_v2(row.index, generation, UInt32(endpoint.index), authorization.mask,
+                                                  configuration.localIPv4, configuration.boardIPv4, configuration.subnetMaskIPv4,
+                                                  b[7], &raw, &started)
             }
         }
         guard code == 0, started != 0 else { throw NativeBackendError.transport(code: code) }

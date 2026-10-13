@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>仅在你点击读取当前 Wi-Fi 名称时申请授权，帮助随办硬件加入同一网络；不获取或记录位置坐标。你也可以手动填写网络名称。</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>查找并连接你选择的随办硬件v1，读取设备状态并验证蓝牙通信。</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>

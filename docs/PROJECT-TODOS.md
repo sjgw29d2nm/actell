@@ -552,3 +552,15 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 原手机内首次配对使用 iOS 27 的新网络入口。保留 iOS 26.5 时，在用户已信任的 Mac USB 连接上创建全新、仅随办使用的 RemotePairing controller；M6 强验签、指定 UDID／机型核对与第二条新连接 Pair Verify 均成功，原始结果 `BOOTSTRAP_OK record_written=true m6_signature_verified=true fresh_pair_verify=true bytes=647 mode=600`。记录原子写入当前 App 原来不存在的自身身份文件，没有覆盖已有 App 身份或导入其他应用／Mac 的 RemotePairing 密钥。
 - App 说明旧系统首次授权需 Mac，已保存授权后可连接 USB 或硬件 Wi-Fi；不再让 iOS 26.5 用户反复尝试 iOS 27 的手机内首次授权入口，也不因重试清除已有授权。该首次授权结果仍不证明视频截图／触控在当前系统已可用。
 - 本次只重编相关固件与 App 并进行用户要求的真机联调。取消按键后的固件尺寸、SDK 构建、更新安装和真实入网结果待本次补充；原 USB／Wi-Fi 独占、超时、会话隔离及未知操作不重放的检查证据继续保留。
+
+### 2026-10-13 · 保留手机现有 Wi-Fi 的 App 配网
+
+- 用户要求手机已有 Wi-Fi 时保留原网络，未连接 Wi-Fi 时使用硬件热点与蜂窝网络；开放网络密码可为空，隐藏网络需要真实 SSID。本次取代早期只提供硬件热点的默认流程，全程不需要硬件按钮。读取当前 Wi-Fi 名称通过官方系统接口，仅点击读取按钮时申请定位授权，不采集坐标；系统无法返回名称时手填，不能导出系统保存的密码。
+- BLE 新增一次路由器配置写入 `.105` 与只读网络状态 `.106`；ACK 前同步目标 SSID 与 connecting 状态，之后只读轮询，不把接收成功当作入网。路由器配置仅成功取得有效地址后提交 NVS，失败保留原保存配置；App 同时保留路由器与备用热点的钥匙串配置，不长期保存路由器密码。
+- USB／AP／STA 固定真实 netif 与本机地址，三源共用一个操控 owner；配网与新操控打开通过原子门互斥。USB 地址保持不变，AP 在 8/24 与 172.31.254/24 两池间避让已保存路由器网段。STA 恰好取得 USB 的 192.168.7.1 时明确拒绝，保留 USB 服务。路由器模式限私网 IPv4 peer 的发现与外层连接；不接受同一路由器中其他手机的 IPv6 候选，也不暴露旧 USB 专用 HTTP 入口。USB/AP 原路径保留。
+- App 新 Wi-Fi 接口支持动态私网地址与连续 /8…30 掩码，保留旧固定 AP ABI 和 USB/VPN ABI。真实 Wi-Fi／蜂窝地址不会被误判为 USB；未知、IPv6-only 或检测超时不会当作没有 Wi-Fi，已有 Wi-Fi 时不调用系统热点切换。
+- 复查发现保存路由器和热点可能同网段，不能只按 IP 或旧配置优先选路；用户显式检查时以有限只读 STATUS 确认可达硬件后锁定本次配置，歧义不进入操控。停止配网、网络变化与连接故障清除旧确认；同一次任务不切路、不重放输入。
+- 本机相关检查：App 91 个 Swift 文件 source/project 检查通过（不是 SDK 类型检查）；Rust relay 7 passed、host 静态库与旧/v2 C ABI 检查通过；Swift 动态配置 5 组合法／15 组非法通过；PA3 USB 回环 25 passed。C relay ASan/UBSan 的跨源 nonce、独占、背压及停止释放检查通过。无全量模拟器或 UI 测试声明。
+- 178e 无按键热点固件已逐区域校验并确认实际启动：`suiban_ble: advertising Suiban-v1`、`suiban_wifi: local access point started`、`pa_developer: authenticated Wi-Fi developer transport listening`；这只证明固件启动，尚非新路由器模式手机验收。路由器候选在独立 build 编译，保留原分区/NVS；最终镜像、SDK 构建、安装与真实入网结果待补。
+- 当前 Mac 手机检测原始结果为 `[]`，已请求用户重新接到 Mac 并解锁；独立固件与 App 工作继续。现有 iOS 26.5 截图／触控 CoreDevice 限制不会因 BLE 配网或 Wi-Fi STATUS 成功而自动解除。
+- 最终路由器固件 SDK 构建通过：App `1007168` bytes、SHA256 `d14da81cc2d6ada54259d398728e6cb7a93665b2a21288d344d0a1211936779c`；原 1MiB 分区剩余 `41408` bytes。分区与此前镜像逐字节相同，四个改动 C 文件实际 xtensa 语法检查通过；没有新增生产依赖。当前 Wi-Fi 范围为 2.4GHz 开放／WPA2 私网 IPv4，访客隔离、5GHz-only、企业登录和跨互联网中转尚不支持。

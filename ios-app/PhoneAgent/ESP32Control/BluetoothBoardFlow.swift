@@ -8,6 +8,15 @@ struct BluetoothBoardDevice: Identifiable {
     let name: String
     let signal: Int
 }
+struct BluetoothRouterState: Decodable, Sendable {
+    let version: Int
+    let id: String
+    let ssid: String
+    let state: String
+    let board_ip: String?
+    let netmask: String?
+    let error: String?
+}
 
 @MainActor final class BluetoothBoardFlow: NSObject, ObservableObject,
     @preconcurrency CBCentralManagerDelegate, @preconcurrency CBPeripheralDelegate {
@@ -17,6 +26,8 @@ struct BluetoothBoardDevice: Identifiable {
     private static let commandID = CBUUID(string: "AD51B102-2A4B-4C6D-8E90-102030405060")
     private static let responseID = CBUUID(string: "AD51B103-2A4B-4C6D-8E90-102030405060")
     private static let wifiConfigurationID = CBUUID(string: "AD51B104-2A4B-4C6D-8E90-102030405060")
+    private static let routerConfigurationID = CBUUID(string: "AD51B105-2A4B-4C6D-8E90-102030405060")
+    private static let routerStateID = CBUUID(string: "AD51B106-2A4B-4C6D-8E90-102030405060")
     private static let rememberedDeviceKey = "suibanHardware.lastBluetoothPeripheral"
     private struct Information: Decodable {
         let version: Int
@@ -39,6 +50,17 @@ struct BluetoothBoardDevice: Identifiable {
         let characteristic: CBCharacteristic
         let continuation: CheckedContinuation<HardwareWiFiProfile, Error>
     }
+    private struct PendingRouterWrite {
+        let id: UUID, epoch: UUID, peerID: UUID
+        let characteristic: CBCharacteristic
+        let continuation: CheckedContinuation<Void, Error>
+    }
+    private struct PendingRouterRead {
+        let id: UUID, epoch: UUID, peerID: UUID
+        let boardID: String
+        let characteristic: CBCharacteristic
+        let continuation: CheckedContinuation<BluetoothRouterState, Error>
+    }
     @Published private(set) var devices: [BluetoothBoardDevice] = []
     @Published private(set) var message = "查找随办硬件v1，验证蓝牙连接"
     @Published private(set) var scanning = false
@@ -49,6 +71,7 @@ struct BluetoothBoardDevice: Identifiable {
     @Published private(set) var boardID = ""
     @Published private(set) var usbConnected = false
     @Published private(set) var supportsWiFiConfiguration = false
+    @Published private(set) var supportsRouterConfiguration = false
     @Published private(set) var rememberedPeripheralID = UserDefaults.standard.string(forKey: "suibanHardware.lastBluetoothPeripheral").flatMap(UUID.init(uuidString:))
     private var manager: CBCentralManager?
     private var peripherals: [UUID: CBPeripheral] = [:]
@@ -59,6 +82,11 @@ struct BluetoothBoardDevice: Identifiable {
     private var informationCharacteristic: CBCharacteristic?
     private var wifiConfiguration: CBCharacteristic?
     private var pendingWiFiRead: PendingWiFiRead?
+    private var routerConfiguration: CBCharacteristic?
+    private var routerState: CBCharacteristic?
+    private var pendingRouterWrite: PendingRouterWrite?
+    private var pendingRouterRead: PendingRouterRead?
+    private var routerTimer: Task<Void, Never>?
     private var wifiReadTimer: Task<Void, Never>?
     private var reconnectRequested = false
     private var handshaking = false
@@ -121,10 +149,21 @@ struct BluetoothBoardDevice: Identifiable {
             } else {
                 _ = try await fetchWiFiConfiguration()
                 record("read.success credentials_discarded=true")
+                if supportsRouterConfiguration {
+                    let state = try await fetchRouterState()
+                    record("router.read.success state=\(state.state) board_id_match=\(state.id == expected)")
+                }
             }
         } catch {
             let code = diagnosticWiFiErrorCode.map { String($0) } ?? "none"
             record("read.failed att_domain=\(diagnosticWiFiErrorDomain ?? "none") att_code=\(code)")
+        }
+        do {
+            let network = try NCMProbeClient.currentWiFiNetwork()
+            let connectedWiFi = try await NCMProbeClient.hasConnectedWiFi()
+            record("network.read wifi_connected=\(connectedWiFi) ipv4_available=\(network != nil) network_changed_by_probe=false")
+        } catch {
+            record("network.read unavailable network_changed_by_probe=false")
         }
         record("probe.end bluetooth_connected=\(connected)")
         #endif
@@ -198,12 +237,15 @@ struct BluetoothBoardDevice: Identifiable {
         connectionTimer?.cancel(); connectionTimer = nil
         finishCommand(.failure(AppError.unavailable("蓝牙连接已断开")))
         finishWiFiRead(.failure(AppError.unavailable("蓝牙连接已断开，请重新连接后在 App 重试配网")))
+        finishRouterWrite(.failure(AppError.unavailable("蓝牙已断开，配置接收结果未确认；不会自动重发")))
+        finishRouterRead(.failure(AppError.unavailable("蓝牙已断开，请重新连接后检查硬件网络状态")))
         if let selected {
             if selected.state != .disconnected { retiringDevices.insert(selected.identifier) }
             manager?.cancelPeripheralConnection(selected); selected.delegate = nil
         }
         selected = nil; command = nil; response = nil; information = nil; informationCharacteristic = nil
         wifiConfiguration = nil; supportsWiFiConfiguration = false; handshaking = false
+        routerConfiguration = nil; routerState = nil; supportsRouterConfiguration = false
         connected = false; connecting = false; boardName = ""; boardID = ""; usbConnected = false
         self.message = message
     }
@@ -226,7 +268,7 @@ struct BluetoothBoardDevice: Identifiable {
         }
     }
     private func ping() async throws {
-        guard pending == nil, pendingWiFiRead == nil, let selected, let command, response?.isNotifying == true else {
+        guard !busy, let selected, let command, response?.isNotifying == true else {
             throw AppError.unavailable("蓝牙服务尚未就绪")
         }
         guard sequence < UInt32.max else { throw AppError.unavailable("请重新连接板子") }
@@ -253,11 +295,11 @@ struct BluetoothBoardDevice: Identifiable {
     }
     private func finishCommand(_ result: Result<Void, Error>) {
         commandTimer?.cancel(); commandTimer = nil
-        let previous = pending; pending = nil; busy = pendingWiFiRead != nil
+        let previous = pending; pending = nil; refreshBusy()
         previous?.continuation.resume(with: result)
     }
     func fetchWiFiConfiguration() async throws -> HardwareWiFiProfile {
-        guard connected, pending == nil, pendingWiFiRead == nil,
+        guard connected, !busy,
               let selected, let characteristic = wifiConfiguration else {
             throw AppError.unavailable("请先连接蓝牙；未提供 Wi-Fi 配置的板子需要更新固件")
         }
@@ -291,8 +333,78 @@ struct BluetoothBoardDevice: Identifiable {
     }
     private func finishWiFiRead(_ result: Result<HardwareWiFiProfile, Error>) {
         wifiReadTimer?.cancel(); wifiReadTimer = nil
-        let previous = pendingWiFiRead; pendingWiFiRead = nil; busy = pending != nil
+        let previous = pendingWiFiRead; pendingWiFiRead = nil; refreshBusy()
         previous?.continuation.resume(with: result)
+    }
+    private func refreshBusy() {
+        busy = pending != nil || pendingWiFiRead != nil || pendingRouterWrite != nil || pendingRouterRead != nil
+    }
+    func configureRouter(ssid: String, passphrase: String) async throws {
+        guard connected, !busy, let selected, let characteristic = routerConfiguration else {
+            throw AppError.unavailable("请先连接支持路由器配网的硬件蓝牙")
+        }
+        guard !ssid.isEmpty, ssid.utf8.count <= 32, !ssid.utf8.contains(0),
+              passphrase.isEmpty || ((8...63).contains(passphrase.utf8.count) && passphrase.utf8.allSatisfy({ (32...126).contains($0) })) else {
+            throw AppError.invalid("Wi-Fi 名称最多 32 字节；加密网络密码须为 8～63 个英文字符，开放网络留空")
+        }
+        struct Request: Encodable { let version: Int; let id: String; let ssid: String; let passphrase: String }
+        let data = try JSONEncoder().encode(Request(version: 1, id: boardID, ssid: ssid, passphrase: passphrase))
+        guard data.count <= 512, data.count <= selected.maximumWriteValueLength(for: .withResponse) else { throw AppError.invalid("当前蓝牙写入长度不足，请重新连接硬件") }
+        let id = UUID(), current = epoch
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                pendingRouterWrite = PendingRouterWrite(id: id, epoch: current, peerID: selected.identifier, characteristic: characteristic, continuation: continuation)
+                refreshBusy()
+                routerTimer = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                    guard let self, self.epoch == current, self.pendingRouterWrite?.id == id else { return }
+                    self.finishRouterWrite(.failure(AppError.unavailable("配置接收结果未确认，没有自动重发；重新连接后检查硬件状态")))
+                    self.disconnect(message: "配置发送超时，蓝牙已停止；不会自动重发")
+                }
+                selected.writeValue(data, for: characteristic, type: .withResponse)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.epoch == current, self.pendingRouterWrite?.id == id else { return }
+                self.finishRouterWrite(.failure(CancellationError()))
+                self.disconnect(message: "已停止等待配置确认；硬件可能已接收，不会自动重发")
+            }
+        }
+    }
+    func fetchRouterState() async throws -> BluetoothRouterState {
+        guard connected, !busy, let selected, let characteristic = routerState else { throw AppError.unavailable("路由器状态服务尚未就绪，请重新连接硬件") }
+        let id = UUID(), current = epoch, expectedBoardID = boardID
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                pendingRouterRead = PendingRouterRead(id: id, epoch: current, peerID: selected.identifier, boardID: expectedBoardID, characteristic: characteristic, continuation: continuation)
+                refreshBusy()
+                routerTimer = Task { [weak self] in
+                    do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                    guard let self, self.epoch == current, self.pendingRouterRead?.id == id else { return }
+                    self.finishRouterRead(.failure(AppError.unavailable("读取路由器状态超时，请重新连接后检查")))
+                    self.disconnect(message: "读取状态超时，蓝牙已停止")
+                }
+                selected.readValue(for: characteristic)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.epoch == current, self.pendingRouterRead?.id == id else { return }
+                self.finishRouterRead(.failure(CancellationError()))
+                self.disconnect(message: "已停止读取网络状态")
+            }
+        }
+    }
+    private func finishRouterWrite(_ result: Result<Void, Error>) {
+        guard let previous = pendingRouterWrite else { return }
+        routerTimer?.cancel(); routerTimer = nil; pendingRouterWrite = nil; refreshBusy()
+        previous.continuation.resume(with: result)
+    }
+    private func finishRouterRead(_ result: Result<BluetoothRouterState, Error>) {
+        guard let previous = pendingRouterRead else { return }
+        routerTimer?.cancel(); routerTimer = nil; pendingRouterRead = nil; refreshBusy()
+        previous.continuation.resume(with: result)
     }
     private func finishDiscoveryIfReady() {
         guard !handshaking, connecting, let information, command != nil, response?.isNotifying == true else { return }
@@ -362,7 +474,7 @@ struct BluetoothBoardDevice: Identifiable {
         guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == Self.service }) else {
             disconnect(message: "板子未提供随办蓝牙服务，请更新固件"); return
         }
-        peripheral.discoverCharacteristics([Self.informationID, Self.commandID, Self.responseID, Self.wifiConfigurationID], for: service)
+        peripheral.discoverCharacteristics([Self.informationID, Self.commandID, Self.responseID, Self.wifiConfigurationID, Self.routerConfigurationID, Self.routerStateID], for: service)
     }
     func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
         guard selected === peripheral, invalidatedServices.contains(where: { $0.uuid == Self.service }) else { return }
@@ -370,8 +482,11 @@ struct BluetoothBoardDevice: Identifiable {
         connectionTimer?.cancel(); connectionTimer = nil
         finishCommand(.failure(AppError.unavailable("硬件服务已更新，请等待重新发现")))
         finishWiFiRead(.failure(AppError.unavailable("硬件服务已更新，请等待蓝牙重新连接后在 App 重试")))
+        finishRouterWrite(.failure(AppError.unavailable("硬件服务已更新，配置接收结果未确认；不会自动重发")))
+        finishRouterRead(.failure(AppError.unavailable("硬件服务已更新，请重新检查网络状态")))
         command = nil; response = nil; information = nil; informationCharacteristic = nil
         wifiConfiguration = nil; supportsWiFiConfiguration = false; handshaking = false
+        routerConfiguration = nil; routerState = nil; supportsRouterConfiguration = false
         connected = false; connecting = true; boardID = ""; usbConnected = false
         message = "硬件服务已更新，正在重新发现蓝牙服务"
         connectionTimer = Task { [weak self] in
@@ -393,6 +508,9 @@ struct BluetoothBoardDevice: Identifiable {
         command = write; response = reply; informationCharacteristic = info
         wifiConfiguration = chars.first(where: { $0.uuid == Self.wifiConfigurationID && $0.properties.contains(.read) })
         supportsWiFiConfiguration = wifiConfiguration != nil
+        routerConfiguration = chars.first(where: { $0.uuid == Self.routerConfigurationID && $0.properties.contains(.write) })
+        routerState = chars.first(where: { $0.uuid == Self.routerStateID && $0.properties.contains(.read) })
+        supportsRouterConfiguration = routerConfiguration != nil && routerState != nil
         peripheral.setNotifyValue(true, for: reply)
         peripheral.readValue(for: info)
     }
@@ -402,11 +520,27 @@ struct BluetoothBoardDevice: Identifiable {
         finishDiscoveryIfReady()
     }
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        if selected === peripheral, let pending = pendingRouterWrite, pending.epoch == epoch,
+           pending.peerID == peripheral.identifier, pending.characteristic === characteristic, characteristic === routerConfiguration {
+            finishRouterWrite(error == nil ? .success(Void()) : .failure(AppError.unavailable("硬件未接收配网请求，请检查设备是否忙碌；未自动重发")))
+            return
+        }
         guard selected === peripheral, characteristic === command, error != nil else { return }
         finishCommand(.failure(AppError.unavailable("蓝牙指令写入失败")))
     }
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard selected === peripheral else { return }
+        if characteristic.uuid == Self.routerStateID {
+            guard let pending = pendingRouterRead, pending.epoch == epoch, pending.peerID == peripheral.identifier,
+                  pending.characteristic === characteristic, characteristic === routerState else { return }
+            guard error == nil, let data = characteristic.value, !data.isEmpty, data.count <= 2048,
+                  let state = try? JSONDecoder().decode(BluetoothRouterState.self, from: data),
+                  state.version == 1, state.id == pending.boardID, state.ssid.utf8.count <= 32,
+                  ["unconfigured", "connecting", "ready", "failed"].contains(state.state) else {
+                finishRouterRead(.failure(AppError.unavailable("硬件网络状态无效，请重新连接后检查"))); return
+            }
+            finishRouterRead(.success(state)); return
+        }
         if characteristic.uuid == Self.wifiConfigurationID {
             guard let pending = pendingWiFiRead, pending.epoch == epoch,
                   pending.peerID == peripheral.identifier, pending.characteristic === characteristic,

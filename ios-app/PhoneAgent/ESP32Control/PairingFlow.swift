@@ -274,6 +274,9 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     guard let endpoint = discovery.endpoints?.first(where: { $0.service == "remotepairing" }) else {
+                        if case .wifi = transport, discovery.result == "unsupported" {
+                            throw NCMControlError.unavailable("路由器模式未发现手机 IPv4 开发者服务；请检查开发者模式与路由器设备互通，当前不使用路由器上的 IPv6 候选")
+                        }
                         throw NCMControlError.unavailable("未发现手机服务，请检查随办硬件v1 连接")
                     }
                     message = "正在通过 \(hardwareConnectionLabel) 验证身份并建立开发者隧道"
