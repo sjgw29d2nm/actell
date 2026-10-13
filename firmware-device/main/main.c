@@ -1,5 +1,6 @@
 #include "usb_device.h"
 #include "developer_service.h"
+#include "bluetooth_board.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "lwip/sockets.h"
@@ -83,6 +84,10 @@ static bool process_line(char *line,int64_t now) {
 void app_main(void) {
     ESP_ERROR_CHECK(usb_network_start());
     ESP_ERROR_CHECK(developer_service_start(usb_online, usb_epoch, usb_network_index()));
+    esp_err_t bluetooth_status=bluetooth_board_start();
+    if (bluetooth_status!=ESP_OK) {
+        ESP_LOGW(TAG,"BLE diagnostics unavailable: %s; USB remains available; NVS preserved",esp_err_to_name(bluetooth_status));
+    }
     int listener=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
     ESP_ERROR_CHECK(listener<0 ? ESP_FAIL:ESP_OK);
     struct sockaddr_in address={.sin_family=AF_INET,.sin_port=htons(28766)};
@@ -90,7 +95,8 @@ void app_main(void) {
     ESP_ERROR_CHECK(bind(listener,(struct sockaddr*)&address,sizeof(address)) ? ESP_FAIL:ESP_OK);
     ESP_ERROR_CHECK(listen(listener,1) ? ESP_FAIL:ESP_OK);
     fcntl(listener,F_SETFL,O_NONBLOCK);
-    ESP_LOGI(TAG,"NCM %s; 192.168.7.1:28766; PA3 persistent; no PSK/radio/DHCP/default route",usb_hid_enabled()?"+ HID":"only");
+    ESP_LOGI(TAG,"NCM %s; 192.168.7.1:28766; PA3 persistent; USB no PSK/DHCP/default route; BLE diagnostics %s",
+             usb_hid_enabled()?"+ HID":"only",bluetooth_status==ESP_OK?"started":"unavailable");
     uint32_t epoch=usb_epoch();
     for (;;) {
         int64_t now=milliseconds();

@@ -92,6 +92,9 @@ struct SettingsView: View {
                     NavigationLink { ESP32ControlSettingsView() } label: {
                         Label("连接与验证", systemImage: "iphone")
                     }.accessibilityIdentifier("esp32ControlSettings")
+                    NavigationLink { BluetoothBoardSettingsView() } label: {
+                        Label("随办硬件v1 蓝牙", systemImage: "antenna.radiowaves.left.and.right")
+                    }.accessibilityIdentifier("suibanHardwareBluetoothSettings")
                 }
                 Section {
                     Picker("后台运行方式", selection: $backgroundMode) {

@@ -50,7 +50,8 @@ assert 'NWParameters(tls: tls, tcp: tcp)' in bridge
 assert 'guard await approve' in tools and 'image = nil' in tools
 assert 'requiresConfirmationEvenWhenAutonomous' not in tools # app-owned gate cannot be waived
 background_plist = plistlib.loads((ROOT / 'PhoneAgent/Info.plist').read_bytes())
-assert set(background_plist['UIBackgroundModes']) == {'screen-capture', 'processing', 'audio'}
+assert set(background_plist['UIBackgroundModes']) == {'screen-capture', 'processing', 'audio', 'bluetooth-central'}
+assert '随办硬件v1' in background_plist['NSBluetoothAlwaysUsageDescription']
 assert background_plist['BGTaskSchedulerPermittedIdentifiers'] == ['$(PRODUCT_BUNDLE_IDENTIFIER).backgroundRun.*', '$(PRODUCT_BUNDLE_IDENTIFIER).pairing']
 print(f'PASS: {len(files)} Swift files parsed; project/plist/pins and source guardrail assertions checked')
 print('This script does not perform Swift type-check, dependency resolution, Xcode, XCTest, Simulator, or device/TLS tests.')

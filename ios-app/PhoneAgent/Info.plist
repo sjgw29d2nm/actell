@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>查找并连接你选择的随办硬件v1，读取设备状态并验证蓝牙通信。</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).backgroundRun.*</string>
@@ -28,6 +30,7 @@
 		<string>screen-capture</string>
 		<string>processing</string>
 		<string>audio</string>
+		<string>bluetooth-central</string>
 	</array>
 </dict>
 </plist>

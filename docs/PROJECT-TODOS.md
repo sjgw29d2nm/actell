@@ -520,3 +520,13 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 本机严格代码签名验证通过，签名后恢复原钥匙串搜索列表。包没有加入 API key 文件。USB 原始记录 `2026-10-13 16:41:01 ... INFO Installation succeed.`；设备元数据确认版本 `1.3`、`SuibanSourceCommit=1aab1337778a35b2b80989e0fe96c7ff2acb8daa`，启动返回进程号 `15785`。
 - 更新后读取应用偏好，确认保留 1 个“智谱 AI”供应商、所选 `glm-5.3-flash`，并与更新前逐项比对所选配置及 `keyAccount` 引用一致。没有导出或打印 Keychain 密钥，也没有调用真实模型推理。
 - 用户在使用其他 App，当前屏幕不能作为随办新页面证据，因此没有宣称此次已完成页面截图验收。安装、进程启动和配置保留已验证；自然语言识别及定时手机操作端到端仍待真机验收。
+
+## 随办硬件v1与无线开发恢复（2026-10-13）
+
+- 用户重新要求开发蓝牙及 Wi-Fi，并要求不依赖同一个既有 Wi-Fi。连接模式品牌改为“随办硬件v1”；“执行模式”改为“后台运行方式”，说明任务可以从对话、Siri／快捷指令或定时触发，音频与画中画仅是后台待命方式。
+- 读取当前手机配置，确认智谱、`glm-5.3-flash` 和密钥引用存在。使用同一用户提供的本机私有密钥向官方 endpoint 发出一次合成红色图片／诊断工具请求，返回 `HTTP 200`、`finish_reason=tool_calls`、`connection_probe(color=red)`。没有发送手机截图或业务内容。此证据证明 API 侧鉴权、视觉与工具可用，不等于手机内完整控制任务验收。
+- 恢复旧 BLE 原型作为共同基础：硬件身份、USB 状态、加密连接和双向 PING；不接受手机动作、不开放无线转发。App 增加硬件蓝牙入口、明确当前仅诊断，并增加旧取消回调／退役连接的代次保护；蓝牙诊断不接管 USB／VPN 控制通道。
+- ESP-IDF 5.5.5 固件编译成功，修正旧 `ble_store_config_init` 隐式声明，声明写法与 SDK 官方 bleprph 示例一致。移除会自动淘汰旧配对的演示回调；NVS 失败保留原数据并让 USB 继续启动。没有 NVS erase、eFuse 修改或新增外部生产依赖。
+- 候选固件 `.build/wireless-ble-firmware/phoneagent_usb_device.bin` 为 695712 字节，SHA256 `f05ec7a83cddf14f87b5655bbf5b41484f20658d80d130998fdfd9afd73ad6ac`；原始日志 `phoneagent_usb_device.bin binary size 0xa9da0 bytes.`、`Project build complete.`。当前 Mac 未枚举到板子烧录串口，尚未烧录、尚未证明真实 BLE 连接。
+- Wi-Fi 方向待用户选择：附近可用 BLE 发现／绑定加板子热点，无需共同路由器；跨不同互联网网络需要中转服务器／隧道。S3 不在乐鑫现行 Wi-Fi Aware iPhone 互通支持名单中，不能承诺使用 S3 保留原 Wi-Fi 的点对点能力。热点自动加入还需核对签名是否授权 HotspotConfiguration；手动加入可作为联调入口。
+- USB／Wi-Fi 的目标规则为同一任务独占一条通道：空闲时可优先 USB，执行中不因插线抢占；断线停止并撤销旧截图／授权，未知输入不重发。现有任务占用和会话代次机制可复用；无线 Wi-Fi 通道及两链路共同仲裁尚未实现。蓝牙／Wi-Fi传输也不能解除已记录的 iOS 26.5 CoreDevice 控制服务限制。
