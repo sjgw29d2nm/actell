@@ -16,6 +16,32 @@ struct BluetoothRouterState: Decodable, Sendable {
     let board_ip: String?
     let netmask: String?
     let error: String?
+    var failureCode: String? {
+        guard let error, !error.isEmpty else { return nil }
+        let publicCodes = ["usb_address_conflict", "network_unsupported", "network_changed", "lost_ip",
+                           "connect_timeout", "connect_failed", "connection_lost", "storage_or_ap_failed", "saved_configuration_invalid"]
+        if publicCodes.contains(error) { return error }
+        if error.hasPrefix("wifi_"), let reason = UInt16(error.dropFirst(5)), error == "wifi_\(reason)" { return error }
+        return nil
+    }
+    var failureMessage: String {
+        let message: String
+        switch failureCode {
+        case "wifi_201": message = "硬件未找到该 Wi-Fi，请确认名称及 2.4GHz 网络"
+        case "wifi_202": message = "路由器认证失败，请核对密码或网络认证方式"
+        case "wifi_15", "wifi_204": message = "Wi-Fi 握手超时，请核对密码并检查路由器"
+        case "wifi_210", "wifi_211": message = "未找到认证方式兼容的 Wi-Fi，请检查路由器加密方式"
+        case "usb_address_conflict": message = "路由器分配的硬件地址与 USB 地址冲突"
+        case "network_unsupported": message = "硬件取得的网络地址不在支持的私网 IPv4 范围"
+        case "lost_ip", "connection_lost", "network_changed": message = "硬件网络地址丢失或变化，请重新检查网络"
+        case "connect_timeout": message = "硬件等待入网超时，请检查 Wi-Fi 信号、名称与认证方式"
+        case "connect_failed": message = "硬件未能启动本次 Wi-Fi 入网"
+        case "storage_or_ap_failed": message = "硬件保存配置或更新备用热点失败"
+        case "saved_configuration_invalid": message = "硬件保存的路由器配置无效，请重新配网"
+        default: message = "硬件连接路由器失败，请检查名称、密码与 2.4GHz 网络"
+        }
+        return "\(message)（\(failureCode ?? "unknown")）；原配置保留"
+    }
 }
 
 @MainActor final class BluetoothBoardFlow: NSObject, ObservableObject,
@@ -105,7 +131,8 @@ struct BluetoothRouterState: Decodable, Sendable {
     #endif
 
     /// Explicit CLI diagnostic only: one remembered peer, one configuration
-    /// read, no credentials saved and no phone actions or network changes.
+    /// read, no phone actions. An explicit open-router flag uses the normal
+    /// App provisioning flow once; it never changes the phone's Wi-Fi.
     func runDiagnosticProbeIfRequested() async {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
@@ -138,7 +165,24 @@ struct BluetoothRouterState: Decodable, Sendable {
         guard supportsWiFiConfiguration else { record("read.characteristic_missing"); return }
         do {
             record("read.start")
-            if arguments.contains("--hardware-configure-wifi") {
+            if arguments.contains("--hardware-configure-open-router") {
+                guard let index = arguments.firstIndex(of: "--hardware-router-ssid"), index + 1 < arguments.count else { record("configure.missing_ssid"); return }
+                let target = arguments[index + 1]
+                guard !target.isEmpty, target.utf8.count <= 32, !target.utf8.contains(0) else { record("configure.invalid_ssid"); return }
+                let wifi = HardwareWiFiFlow.shared
+                record("configure.open_router.begin one_request_only=true")
+                wifi.configureRouter(ssid: target, passphrase: "")
+                let deadline = ContinuousClock.now.advanced(by: .seconds(80))
+                while wifi.busy && ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                if wifi.busy { wifi.cancelConfiguration(); record("configure.wait_stopped no_resend=true") }
+                record("configure.open_router.end saved=\(wifi.hasRouterConfiguration && wifi.boardID == expected && wifi.ssid == target) joined=\(wifi.joined)")
+                if connected, !busy {
+                    let state = try await fetchRouterState()
+                    record("router.read.success state=\(state.state) error=\(state.failureCode ?? "none") board_id_match=\(state.id == expected)")
+                }
+            } else if arguments.contains("--hardware-configure-wifi") {
                 let wifi = HardwareWiFiFlow.shared
                 wifi.readConfiguration(joinAfterSave: true)
                 let deadline = ContinuousClock.now.advanced(by: .seconds(65))
@@ -151,7 +195,7 @@ struct BluetoothRouterState: Decodable, Sendable {
                 record("read.success credentials_discarded=true")
                 if supportsRouterConfiguration {
                     let state = try await fetchRouterState()
-                    record("router.read.success state=\(state.state) board_id_match=\(state.id == expected)")
+                    record("router.read.success state=\(state.state) error=\(state.failureCode ?? "none") board_id_match=\(state.id == expected)")
                 }
             }
         } catch {

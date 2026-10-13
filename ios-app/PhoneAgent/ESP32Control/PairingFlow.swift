@@ -718,7 +718,7 @@ struct PairingSection: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
         } header: {
-            Text(flow.route == .ncmDeveloper ? "3 · 手机操控验证" : "连接与验证")
+            Text(flow.route == .ncmDeveloper ? "4 · 手机操控验证" : "连接与验证")
         } footer: {
             if !flow.hasRecord && !flow.supportsOnDevicePairing {
                 Text("当前 iOS 首次授权需将手机连接 Mac 完成，蓝牙配对不能代替手机操控授权。授权会保存，之后可直接连接 USB 或已配置的硬件 Wi-Fi。")

@@ -136,6 +136,18 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
             relayToken: profile.relay_token, subnetMask: network.subnetMask)
     }
     var savedModeTitle: String { profile?.isRouter == true ? "现有 Wi-Fi" : "硬件热点" }
+    var savedRouterSSID: String? { routerProfile?.ssid }
+    var currentWiFiIsHardwareHotspot: Bool { !currentWiFiName.isEmpty && currentWiFiName == hotspotProfile?.ssid }
+    var configurationUnavailableReason: String? {
+        if busy { return "正在配置硬件网络，请等待或点「停止配置」。" }
+        if !PairingFlow.shared.canChangeRoute { return "手机操控正在连接或执行任务，请先在下方停止，再修改硬件网络。" }
+        if BluetoothBoardFlow.shared.busy { return "蓝牙正在处理请求，请等待完成。" }
+        do {
+            _ = try NCMProbeClient.selectHardwareTransport(wifi: nil)
+            return "当前 USB 通道优先；无线配网前请拔下手机与硬件之间的 USB 线。编程 USB 供电可保留。"
+        } catch NCMError.interfaceUnavailable { return nil }
+        catch { return "USB 接口状态尚未确认，请检查手机与硬件之间的 USB 线后重试。" }
+    }
     var backupHotspotSSID: String? { hotspotProfile?.ssid }
     var hasRouterConfiguration: Bool { routerProfile != nil }
     var hasConfiguration: Bool { profile != nil }
@@ -320,7 +332,7 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
                     guard let current = try NCMProbeClient.currentWiFiNetwork(), current == initialNetwork else {
                         throw AppError.unavailable("手机网络已变化，已停止等待；请在目标 Wi-Fi 下重新检查硬件状态")
                     }
-                    if state.state == "failed" { throw AppError.unavailable("硬件连接路由器失败，请核对名称、密码与 2.4GHz 网络；原配置保留") }
+                    if state.state == "failed" { throw AppError.unavailable(state.failureMessage) }
                     if state.state == "ready", state.ssid == requestedSSID, let boardAddress = state.board_ip,
                        let mask = state.netmask, mask == current.subnetMask {
                         let received = HardwareWiFiProfile(version: 1, id: ap.id, ssid: state.ssid, passphrase: "",
@@ -328,7 +340,11 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
                             mode: "router", netmask: mask)
                         try received.validate(expectedBoardID: bluetooth.boardID)
                         guard let configuration = received.relayConfiguration else { throw AppError.invalid("硬件配置无效") }
-                        let reply = try await NCMProbeClient().request(.status, transport: .wifi(configuration))
+                        self.statusText = "硬件已取得路由器地址，正在检查手机与硬件能否互通"
+                        let reply: DiagnosticReply
+                        do { reply = try await NCMProbeClient().request(.status, transport: .wifi(configuration)) }
+                        catch is CancellationError { throw CancellationError() }
+                        catch { throw AppError.unavailable("硬件已入网，但手机暂时无法访问；请确认两个网络处于同一局域网，并允许设备互通") }
                         guard reply.layer == "ncm", reply.result == "diagnostic-only" else { throw AppError.unavailable("硬件未确认网络连接，请重新检查") }
                         guard self.operationID == id, !Task.isCancelled else { throw CancellationError() }
                         guard try NCMProbeClient.currentWiFiNetwork() == current else { throw AppError.unavailable("手机网络已变化，请重新检查") }
@@ -365,6 +381,7 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
                 let state = try await bluetooth.fetchRouterState()
                 guard self.operationID == id, !Task.isCancelled else { throw CancellationError() }
                 try self.requireConfigurationChangeAllowed()
+                if state.state == "failed" { throw AppError.unavailable(state.failureMessage) }
                 guard state.state == "ready", state.ssid == saved.ssid, let boardAddress = state.board_ip,
                       let current = try NCMProbeClient.currentWiFiNetwork(), current.subnetMask == state.netmask else {
                     throw AppError.unavailable("硬件尚未加入已保存的网络，请确认手机和硬件使用同一路由器")
@@ -596,24 +613,35 @@ struct HardwareWirelessSettingsView: View {
     @State private var clearConfirmation = false
     @State private var routerSSID = ""
     @State private var routerPassword = ""
+    @State private var requiresPassword = false
     private var canChangeBluetooth: Bool { control.canChangeRoute && !wifi.busy }
+    private var canUseSavedNetwork: Bool {
+        if wifi.currentWiFiIsHardwareHotspot { return wifi.hasConfiguration }
+        if !wifi.usesRouterNetwork { return wifi.backupHotspotSSID != nil }
+        return wifi.hasRouterConfiguration
+    }
+    private var mainButtonTitle: String {
+        if canUseSavedNetwork { return "连接已配好的硬件" }
+        if bluetooth.connecting { return "正在连接硬件" }
+        if !bluetooth.connected { return bluetooth.rememberedPeripheralID == nil ? "查找硬件，继续配网" : "连接硬件，继续配网" }
+        return wifi.usesRouterNetwork ? "连接硬件网络" : "配置并连接备用热点"
+    }
+    private var mainButtonUnavailableReason: String? {
+        if let reason = wifi.configurationUnavailableReason { return reason }
+        if canUseSavedNetwork { return nil }
+        if bluetooth.connecting { return "正在连接硬件蓝牙，连接完成后才能发送网络配置。" }
+        if bluetooth.scanning { return "正在查找硬件，请在上方列表选择你的板子。" }
+        if !bluetooth.connected { return nil }
+        if wifi.usesRouterNetwork && !bluetooth.supportsRouterConfiguration { return "当前硬件固件尚不支持加入路由器，需要先更新固件。" }
+        if !wifi.usesRouterNetwork && !bluetooth.supportsWiFiConfiguration { return "当前硬件未提供热点配置，请检查固件。" }
+        if wifi.usesRouterNetwork && routerSSID.isEmpty { return "手机 Wi-Fi 名称未识别，请读取名称或手动填写真实名称。" }
+        return nil
+    }
     var body: some View {
         Form {
-            Section {
-                LabeledContent("当前操控模式", value: control.route.title)
-                if control.route == .ncmDeveloper {
-                    LabeledContent("实际操控通道", value: control.ready ? control.hardwareConnectionLabel : "未连接")
-                } else {
-                    Button("使用随办硬件v1操控") { _ = control.selectRoute(.ncmDeveloper) }
-                        .disabled(!canChangeBluetooth)
-                }
-            } header: { Text("连接方式") } footer: {
-                Text("首次无线配置：连接蓝牙 → 在 App 配置并连接 Wi-Fi → 完成手机操控授权并检查连接。全程无需按板子按钮。配置保存后可只用 Wi-Fi，蓝牙无需持续连接。")
-                Text("USB 优先。同一次操控固定使用一种通道；拔线或网络断开后会停止，请重新连接，不会自动重发动作。")
-            }
             bluetoothSection
             if !bluetooth.connected && !bluetooth.connecting && !bluetooth.devices.isEmpty {
-                Section("附近的硬件") {
+                Section("选择你的硬件") {
                     ForEach(bluetooth.devices) { device in
                         Button { bluetooth.connect(device) } label: {
                             HStack { Text(device.name); Spacer(); Text("\(device.signal) dBm").font(.caption).foregroundStyle(.secondary) }
@@ -621,34 +649,32 @@ struct HardwareWirelessSettingsView: View {
                     }
                 }
             }
-            wifiSection
+            phoneNetworkSection
+            hardwareNetworkSection
             if control.route == .ncmDeveloper {
                 PairingSection { showingTouchTest = true }
-            }
-            if !wifi.history.isEmpty {
-                Section("连接记录") {
-                    if let date = wifi.lastConnectedAt { LabeledContent("最近成功", value: date.formatted(date: .abbreviated, time: .shortened)) }
-                    ForEach(wifi.history) { record in
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                Label(record.transport, systemImage: record.message == "连接已停止" ? "stop.circle" : (record.success ? "checkmark.circle" : "exclamationmark.circle"))
-                                Spacer()
-                                Text(record.date, format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text(record.message).font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
+            } else {
+                Section {
+                    Text("当前操控模式：\(control.route.title)").foregroundStyle(.secondary)
+                    Button("使用随办硬件v1操控手机") { _ = control.selectRoute(.ncmDeveloper) }
+                        .disabled(!canChangeBluetooth)
+                } header: { Text("4 · 手机操控验证") } footer: {
+                    Text("硬件网络连接完成后，再完成手机系统授权和操控连接。")
                 }
             }
+            maintenanceSection
+            if !wifi.history.isEmpty { historySection }
         }
         .navigationTitle("随办硬件v1")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingTouchTest) { TouchVerificationView(flow: control) }
-        .confirmationDialog("清除本机硬件 Wi-Fi 配置和连接记录？", isPresented: $clearConfirmation, titleVisibility: .visible) {
+        .confirmationDialog("清除本机硬件网络配置和连接记录？", isPresented: $clearConfirmation, titleVisibility: .visible) {
             Button("清除", role: .destructive) { wifi.clearConfiguration() }
-        } message: { Text("下次无线使用需重新连接蓝牙，在 App 重新配网。系统开发者配对身份会保留。") }
+        } message: { Text("会清除已保存的路由器和备用热点配置。系统开发者配对身份会保留。") }
         .onAppear {
-            wifi.reload(); wifi.refreshNetwork()
+            wifi.reload()
+            if routerSSID.isEmpty { routerSSID = wifi.currentWiFiName }
+            wifi.refreshNetwork()
             #if DEBUG
             if !ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe") { control.resume() }
             #else
@@ -658,82 +684,146 @@ struct HardwareWirelessSettingsView: View {
         .onChange(of: wifi.currentWiFiName) { oldValue, newValue in
             if routerSSID.isEmpty || routerSSID == oldValue { routerSSID = newValue }
         }
+        .onChange(of: requiresPassword) { _, value in if !value { routerPassword = "" } }
         .onDisappear { bluetooth.stopScan() }
     }
     private var bluetoothSection: some View {
         Section {
-            Label(bluetooth.message, systemImage: bluetooth.connected ? "checkmark.circle" : "antenna.radiowaves.left.and.right")
-            if bluetooth.connecting { ProgressView("正在连接蓝牙") }
+            Label(bluetooth.connected ? "硬件蓝牙已连接" : (bluetooth.connecting ? "正在连接硬件" : "硬件蓝牙未连接"),
+                  systemImage: bluetooth.connected ? "checkmark.circle.fill" : "antenna.radiowaves.left.and.right")
+                .foregroundStyle(bluetooth.connected ? .green : .primary)
+            Text(bluetooth.message).font(.footnote).foregroundStyle(.secondary)
             if bluetooth.connected {
-                LabeledContent("设备", value: bluetooth.boardName)
-                LabeledContent("设备编号", value: bluetooth.boardID)
-                Button("断开蓝牙", role: .destructive) { bluetooth.disconnect() }.disabled(bluetooth.busy || !canChangeBluetooth)
-            } else if !bluetooth.connecting {
-                if bluetooth.rememberedPeripheralID != nil {
-                    Button("重连已保存的蓝牙设备") { bluetooth.reconnectRemembered() }.disabled(!canChangeBluetooth)
-                }
-                Button(bluetooth.scanning ? "停止查找" : "查找硬件") {
-                    if bluetooth.scanning { bluetooth.stopScan() } else { bluetooth.scan() }
+                LabeledContent("硬件", value: bluetooth.boardName)
+            } else if bluetooth.connecting {
+                ProgressView()
+                Button("停止蓝牙连接") { bluetooth.disconnect() }
+            } else {
+                Button(bluetooth.scanning ? "停止查找" : (bluetooth.rememberedPeripheralID == nil ? "查找我的硬件" : "连接我的硬件")) {
+                    if bluetooth.scanning { bluetooth.stopScan() } else { connectBluetooth() }
                 }.disabled(!canChangeBluetooth)
                 if bluetooth.scanning { ProgressView() }
-            } else {
-                Button("停止蓝牙连接") { bluetooth.disconnect() }
             }
-        } header: { Text("1 · 蓝牙与设备") } footer: {
-            Text("连接蓝牙时会自动检查双向通信，用于首次配网与识别硬件。手机操控还需完成下方的连接检查，无需重复测试蓝牙。")
+            LabeledContent("当前硬件无线能力", value: "2.4GHz Wi-Fi")
+        } header: { Text("1 · 设备连接") } footer: {
+            Text("首次配网需要蓝牙，连接时会自动验证双向通信。配好后可只用 Wi-Fi，蓝牙无需一直连接。")
         }
     }
-    private var wifiSection: some View {
+    private var phoneNetworkSection: some View {
         Section {
+            LabeledContent("手机当前 Wi-Fi", value: wifi.currentWiFiName.isEmpty ? (wifi.usesRouterNetwork ? "已连接，名称未识别" : "未识别名称") : wifi.currentWiFiName)
             Text(wifi.networkStatus).font(.footnote).foregroundStyle(.secondary)
-            Button("重新检查手机网络") { wifi.refreshNetwork() }.disabled(wifi.busy)
+            if wifi.usesRouterNetwork && wifi.currentWiFiName.isEmpty {
+                Button("读取手机当前 Wi-Fi 名称") { wifi.readCurrentWiFiName() }.disabled(wifi.busy)
+            }
+        } header: { Text("2 · 手机网络") } footer: {
+            Text("手机现在的 Wi-Fi 会保留。下面只配置随办硬件，不修改手机的 Wi-Fi 密码。")
+        }
+    }
+    private var hardwareNetworkSection: some View {
+        Section {
+            if let saved = wifi.savedRouterSSID { LabeledContent("硬件已保存的路由器", value: saved) }
+            else { Text("硬件尚未保存路由器配置").font(.footnote).foregroundStyle(.secondary) }
             Text(wifi.statusText).font(.footnote).foregroundStyle(.secondary)
-            if wifi.hasConfiguration {
-                LabeledContent("已保存网络", value: wifi.ssid)
-                LabeledContent("配置方式", value: wifi.savedModeTitle)
-                LabeledContent("已保存的设备", value: wifi.boardID)
-                if let hotspot = wifi.backupHotspotSSID { LabeledContent("备用硬件热点", value: hotspot) }
-                Text("硬件连接凭据保存在本机钥匙串，路由器密码不会长期保存在 App").font(.caption).foregroundStyle(.secondary)
-                Button("检查或连接已保存网络") { wifi.join() }
-                    .disabled(!wifi.canConfigure)
-                    .accessibilityIdentifier("joinHardwareWiFi")
-            }
-            if wifi.usesRouterNetwork {
-                Button("读取当前 Wi-Fi 名称") { wifi.readCurrentWiFiName() }.disabled(wifi.busy)
-                TextField("当前 Wi-Fi 名称（隐藏网络也可手填）", text: $routerSSID)
+            if wifi.usesRouterNetwork && !canUseSavedNetwork {
+                TextField("硬件要加入的 Wi-Fi 名称", text: $routerSSID)
                     .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(wifi.busy)
-                SecureField("Wi-Fi 密码（开放网络留空）", text: $routerPassword)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(wifi.busy)
-                Button("让硬件加入当前 Wi-Fi") {
-                    let password = routerPassword; routerPassword = ""
-                    wifi.configureRouter(ssid: routerSSID, passphrase: password)
-                }.disabled(!wifi.canConfigure || !bluetooth.connected || !bluetooth.supportsRouterConfiguration)
-                    .accessibilityIdentifier("configureHardwareRouterWiFi")
-                Button("只读取硬件热点备用配置") { wifi.readConfiguration() }
-                    .disabled(!wifi.canConfigure || !bluetooth.connected || !bluetooth.supportsWiFiConfiguration)
-            } else {
-                Button(wifi.hasConfiguration ? "重新读取硬件热点并连接" : "配置并连接硬件热点") { wifi.readConfiguration(joinAfterSave: true) }
-                    .disabled(!wifi.canConfigure || !bluetooth.connected || !bluetooth.supportsWiFiConfiguration)
-                    .accessibilityIdentifier("readHardwareWiFiConfiguration")
+                Toggle("这个 Wi-Fi 需要密码", isOn: $requiresPassword).disabled(wifi.busy)
+                if requiresPassword {
+                    SecureField("供硬件入网使用的密码", text: $routerPassword)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(wifi.busy)
+                } else {
+                    Text("开放网络无需密码，名称会发给硬件。").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if wifi.currentWiFiIsHardwareHotspot {
+                Text("手机当前已在硬件热点，只检查连接，不会再次加入网络。").font(.footnote).foregroundStyle(.secondary)
+            } else if !wifi.usesRouterNetwork {
+                Text("手机没有其他 Wi-Fi 时，可以使用备用硬件热点；调用模型还需可用的蜂窝网络。").font(.footnote).foregroundStyle(.secondary)
             }
-            if wifi.hasRouterConfiguration {
-                Button("通过蓝牙刷新硬件路由器地址") { wifi.refreshRouterAddress() }
-                    .disabled(!wifi.canConfigure || !bluetooth.connected || !bluetooth.supportsRouterConfiguration)
+            Button(mainButtonTitle, action: performMainAction)
+                .disabled(mainButtonUnavailableReason != nil)
+                .accessibilityIdentifier("configureHardwareNetwork")
+            if let reason = mainButtonUnavailableReason {
+                Text(reason).font(.footnote).foregroundStyle(.orange)
+            } else if !canUseSavedNetwork && !bluetooth.connected {
+                Text("蓝牙未连接，点击上方按钮连接硬件后，再把网络设置发给硬件。").font(.footnote).foregroundStyle(.secondary)
             }
             if wifi.busy {
-                ProgressView("正在配置")
+                ProgressView("正在配置硬件网络")
                 Button("停止配置") { wifi.cancelConfiguration() }
             }
-            if wifi.hasConfiguration {
-                Button("清除本机硬件配置与连接记录", role: .destructive) { clearConfirmation = true }
-                    .disabled(!wifi.canConfigure)
-            }
-        } header: { Text("2 · Wi-Fi 配置") } footer: {
-            Text("手机已有 Wi-Fi 时会保留原网络，让硬件加入同一路由器。手机没有 Wi-Fi 时才申请加入硬件热点。全程无需硬件按键；配网前请停止当前操控并拔下手机与硬件间的 USB 线，编程 USB 供电可保留。")
-            if bluetooth.connected && !bluetooth.supportsWiFiConfiguration { Text("当前固件未提供 Wi-Fi 配置，需要先更新硬件固件。") }
-            Text("路由器须支持 2.4GHz，并允许设备互相通信。开放网络密码留空；隐藏网络需要真实 Wi-Fi 名称，可手动填写。随办不能读取系统保存的 Wi-Fi 密码。硬件地址改变时通过蓝牙刷新。")
-            Text("读取 Wi-Fi 名称可能需要 iOS 定位授权；仅在点击读取按钮时申请，不获取坐标。无法识别名称时可手填。")
-            Text("硬件热点不提供互联网。随办调用智谱等模型时，手机还需可用的蜂窝网络或其他独立上网路径，实际联网情况需在手机上验证。")
+        } header: { Text("3 · 硬件网络") } footer: {
+            Text("手机现有 Wi-Fi 会保留。当前随办硬件v1仅支持2.4GHz，只有5GHz信号时无法无线入网。硬件网络与手机网络的名称可以不同，但需要处于同一局域网并允许互通。")
         }
+    }
+    private var maintenanceSection: some View {
+        Section {
+            DisclosureGroup("备用热点与维护") {
+                if let hotspot = wifi.backupHotspotSSID {
+                    LabeledContent("备用硬件热点", value: hotspot)
+                    Text("这是手机无其他 Wi-Fi 时的备用连接，不会与当前路由器同时切换。").font(.caption).foregroundStyle(.secondary)
+                }
+                if bluetooth.connected { LabeledContent("硬件编号", value: bluetooth.boardID) }
+                Text("实际操控通道：\(control.ready ? control.hardwareConnectionLabel : "未连接")").font(.footnote).foregroundStyle(.secondary)
+                Button("重新读取手机网络") { wifi.refreshNetwork() }.disabled(wifi.busy)
+                Button("读取当前 Wi-Fi 名称") { wifi.readCurrentWiFiName() }.disabled(wifi.busy)
+                Button("查找其他硬件") { bluetooth.scan() }.disabled(!canChangeBluetooth || bluetooth.connected || bluetooth.connecting)
+                if bluetooth.connected {
+                    Button("断开蓝牙") { bluetooth.disconnect() }.disabled(bluetooth.busy || !canChangeBluetooth)
+                    Button("更新备用热点配置") { wifi.readConfiguration() }
+                        .disabled(!wifi.canConfigure || !bluetooth.supportsWiFiConfiguration)
+                }
+                if wifi.hasRouterConfiguration {
+                    Button("通过蓝牙刷新硬件地址") { wifi.refreshRouterAddress() }
+                        .disabled(!wifi.canConfigure || !bluetooth.connected || !bluetooth.supportsRouterConfiguration)
+                }
+                if wifi.usesRouterNetwork && bluetooth.connected {
+                    DisclosureGroup("重新配置硬件路由器") {
+                        TextField("路由器 Wi-Fi 名称", text: $routerSSID).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        SecureField("硬件入网密码（开放网络留空）", text: $routerPassword).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("重新发送一次配置") {
+                            let password = routerPassword; routerPassword = ""
+                            wifi.configureRouter(ssid: routerSSID, passphrase: password)
+                        }.disabled(!wifi.canConfigure || !bluetooth.supportsRouterConfiguration || routerSSID.isEmpty)
+                    }
+                }
+                if wifi.hasConfiguration {
+                    Button("清除硬件网络配置与连接记录", role: .destructive) { clearConfirmation = true }.disabled(!wifi.canConfigure)
+                }
+                Text("USB 优先；配网前拔下手机与硬件之间的 USB 线，编程 USB 供电可保留。读取 Wi-Fi 名称可能需要定位授权，不采集坐标，也不能读取系统保存的密码。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("正在连接或执行任务时，网络配置会暂时不可用。")
+        }
+    }
+    private var historySection: some View {
+        Section {
+            DisclosureGroup("查看连接记录") {
+                if let date = wifi.lastConnectedAt { LabeledContent("最近成功", value: date.formatted(date: .abbreviated, time: .shortened)) }
+                ForEach(wifi.history) { record in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Label(record.transport, systemImage: record.message == "连接已停止" ? "stop.circle" : (record.success ? "checkmark.circle" : "exclamationmark.circle"))
+                            Spacer()
+                            Text(record.date, format: .dateTime.month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Text(record.message).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+    private func connectBluetooth() {
+        if bluetooth.rememberedPeripheralID != nil { bluetooth.reconnectRemembered() }
+        else { bluetooth.scan() }
+    }
+    private func performMainAction() {
+        if canUseSavedNetwork { wifi.join() }
+        else if !bluetooth.connected { connectBluetooth() }
+        else if wifi.usesRouterNetwork {
+            let password = requiresPassword ? routerPassword : ""; routerPassword = ""
+            wifi.configureRouter(ssid: routerSSID, passphrase: password)
+        } else { wifi.readConfiguration(joinAfterSave: true) }
     }
 }

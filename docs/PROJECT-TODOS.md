@@ -572,3 +572,13 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - App 1.6 已在 Mac 使用原描述文件本机签名，严格 codesign 校验通过；主 App ID、iOS 26.5 最低版本、ScreenCaptureKit 弱链接和来源提交均核对。描述文件及最终签名都授权 HotspotConfiguration 与 wifi-info，原钥匙串搜索列表已恢复。当前证书只覆盖主 App，因此本地包继续不包含 Live Activity 扩展；模型密钥没有打入包或上传。
 - 路由器固件已在指定 ESP32-S3 编程串口核对 USB 序列/MAC/16MB 后写入，bootloader/原分区/App 三个区域校验通过；App SHA256 与上述最终候选一致。没有写入 NVS 或 eFuse。启动原文：`pa_developer: ND1 / NR1 / NL1 share one USB/AP/router relay owner`、`suiban_ble: advertising Suiban-v1`、`suiban_wifi: local access point started`，本次采样无 panic/abort。此处证明写入和启动，不代表手机已经入网。
 - 新版 App 尚未安装。本次最终 usbmux 原始结果仍为 `[]`，独立 USB 层报告 `usb_iPhone_present:false`，而已知板子仍在。已请求用户重新连接并解锁手机；安装包和保留 App 自身身份／智谱配置的更新与检查命令已准备。不能把待安装、蓝牙/Wi-Fi 真机读取、开放/隐藏网络入网和完整手机任务执行记为完成。
+
+### 2026-10-13 · App 1.6 安装、Wi-Fi 诊断与产品频段约束
+
+- App 1.6 已通过指定 iPhone USB 更新，安装原文 `100% Complete`、`Installation succeed.`，查询版本为 1.6、来源 7cef192，启动成功。更新前后完整 providerProfiles-v1／钥匙串引用一致，智谱配置保留；647 bytes 随办专用身份逐字节一致。此前待安装状态已由这次实际证据取代。
+- 实际手机截图确认已打开新版硬件页。一次已保存指定板子的 BLE 探针：`1.221 read.success credentials_discarded=true`、`1.281 router.read.success state=failed board_id_match=true`、`1.288 network.read wifi_connected=true ipv4_available=true network_changed_by_probe=false`。旧 .104 读取超时本次未复现；路由器入网失败仍需独立定位，不能宣称完整无线操控通过。
+- 用户确认现场是无密码、无需网页登录的网络。Mac CoreWLAN 对用户当前 SSID 只发现 1 个开放网络，`band:2,channel:40`；SDK 枚举核对 band2GHz=1、band5GHz=2。针对截图中的另一同部门 2.4GHz 名称，当前扫描为 `matching_networks:[]`。这些只证明本机当前观察，不能推断所有用户网络都只有 5GHz。
+- 串口采样没有主动发送 reset，但采到了 `rst:0x1 (POWERON)` 及启动日志；不能把该采样当成不中断运行的证据。已停止串口访问，后续通过 App 的有界蓝牙诊断；当前失联按钮需要给出清楚的重连入口。
+- App 硬件页改为四个区域：设备连接、手机网络只读、硬件网络、手机操控验证；备用热点和维护／连接记录折叠。灰按钮显示占用／蓝牙／固件／名称原因，未连蓝牙时可点重连。SSID 初始填充修复，开放网络无需密码；入网成功但局域网不互通单独报告，具体失败码只显示固件公开静态码或规范 wifi_<UInt16>，不输出密码或 token。错误呈现合成检查 15 合法／7 非法通过。
+- **产品无线要求更新为支持 2.4GHz 与 5GHz，并保留手机原网络**，不把改路由器或寻找 2.4GHz 当成用户的正常使用前提。当前 v1 的 [ESP32-S3](https://www.espressif.com/en/products/socs/esp32-s3) 射频只支持 2.4GHz，无法通过固件升级补出 5GHz；App 明确显示现板能力，不能把此限制伪装成 Wi-Fi 配置冲突。
+- 可评估保留 S3 的 USB Device/NCM 与 BLE，增加 [ESP32-C5 双频通信](https://documentation.espressif.com/esp32-c5_datasheet_en.html)，经官方 [ESP-Hosted MCU](https://github.com/espressif/esp-hosted-mcu) 的 SPI 等 MCU 通道接入。C5 的 USB Serial/JTAG 不等于 S3 的通用 USB OTG/NCM，不能作无需改板的直接替换。此处为核对官方能力后的方案，尚未新增硬件、引入生产驱动或完成双频适配；具体接线／可用 GPIO／镜像容量与整机验证仍需在选定硬件后确认。
