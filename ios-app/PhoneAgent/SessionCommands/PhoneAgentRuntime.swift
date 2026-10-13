@@ -8,6 +8,41 @@ import Foundation
     private init() {
         model = Self.makeModel()
         commands = SessionCommandService(sessions: model.sessions, runner: model)
+        applyLocalProviderSetupIfNeeded()
+    }
+    /// The local signer may add this file after CI; credentials never enter the repository.
+    private func applyLocalProviderSetupIfNeeded() {
+        guard !ProcessInfo.processInfo.arguments.contains("--ui-testing"),
+              ProcessInfo.processInfo.environment["PHONEAGENT_ISOLATED_TESTS"] != "1",
+              let url = Bundle.main.url(forResource: "LocalProviderSetup", withExtension: "json") else { return }
+        struct Setup: Decodable {
+            let id: UUID
+            let name: String
+            let baseURL: String
+            let model: String
+            let apiKey: String
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            guard data.count <= 16 * 1024 else { throw AppError.invalid("本机模型配置过大") }
+            let setup = try JSONDecoder().decode(Setup.self, from: data)
+            let marker = "localProviderSetup-applied-" + setup.id.uuidString
+            guard !UserDefaults.standard.bool(forKey: marker) else { return }
+            guard !setup.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !setup.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw AppError.invalid("本机模型配置不完整")
+            }
+            var profile = ProviderProfile(id: setup.id, name: setup.name,
+                settings: .init(baseURL: setup.baseURL, model: setup.model))
+            profile.protocolKind = .openAI
+            profile.inferenceKind = .chatCompletions
+            guard model.saveProvider(profile, key: setup.apiKey) else { return }
+            try model.providers.rememberSelection(providerID: profile.id, model: setup.model)
+            UserDefaults.standard.set(true, forKey: marker)
+        } catch {
+            // Do not include decoding details: the input contains a credential.
+            model.errorMessage = "本机模型配置未保存，请在设置中重新填写"
+        }
     }
     #if DEBUG
     private var invokedSiriFixture = false
