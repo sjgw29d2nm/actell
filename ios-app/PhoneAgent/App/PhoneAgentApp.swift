@@ -9,6 +9,13 @@ import Darwin
     @AppStorage(BackgroundPlaybackMode.defaultsKey) private var backgroundMode = BackgroundPlaybackMode.defaultMode.rawValue
     @AppStorage(BackgroundPlaybackMode.residentDefaultsKey) private var backgroundResident = false
     @Environment(\.scenePhase) private var scenePhase
+    private var hardwareDiagnosticMode: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe")
+        #else
+        return false
+        #endif
+    }
     init() {
         PhoneAgentShortcuts.updateAppShortcutParameters()
         #if DEBUG
@@ -42,13 +49,15 @@ import Darwin
                 }
                 .task {
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
-                    if !streamProbe { PairingFlow.shared.restoreConnection() }
+                    if !streamProbe && !hardwareDiagnosticMode { PairingFlow.shared.restoreConnection() }
                     statusPiP.setBackgroundMode(BackgroundPlaybackMode(rawValue: backgroundMode) ?? .defaultMode)
                     statusPiP.setBackgroundResident(backgroundResident || scheduledTasks.isArmed)
                     model.liveActivities.setBackgroundResident(backgroundResident || scheduledTasks.isArmed)
                     statusPiP.observeTasks(in: model)
                     #if DEBUG
-                    if ProcessInfo.processInfo.arguments.contains("--task-pip-probe") {
+                    if hardwareDiagnosticMode {
+                        await BluetoothBoardFlow.shared.runDiagnosticProbeIfRequested()
+                    } else if ProcessInfo.processInfo.arguments.contains("--task-pip-probe") {
                         if streamProbe { statusPiP.setBackgroundMode(.audio) }
                         model.start()
                         let startCPU = processCPUSecondsForProbe(), startTime = Date()
@@ -82,7 +91,7 @@ import Darwin
                 }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     if phase == .background { PairingFlow.shared.background() }
-                    else if phase == .active { PairingFlow.shared.resume() }
+                    else if phase == .active && !hardwareDiagnosticMode { PairingFlow.shared.resume() }
                     model.setScene(phase == .active ? .active : phase == .background ? .background : .inactive)
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
                     scheduledTasks.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)

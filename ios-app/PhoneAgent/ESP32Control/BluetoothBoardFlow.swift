@@ -70,6 +70,65 @@ struct BluetoothBoardDevice: Identifiable {
     private var scanTimer: Task<Void, Never>?
     private var scanRequested = false
     private var retiringDevices: Set<UUID> = []
+    #if DEBUG
+    private var diagnosticProbeStarted = false
+    private var diagnosticWiFiErrorCode: Int?
+    private var diagnosticWiFiErrorDomain: String?
+    #endif
+
+    /// Explicit CLI diagnostic only: one remembered peer, one configuration
+    /// read, no credentials saved and no phone actions or network changes.
+    func runDiagnosticProbeIfRequested() async {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--hardware-bluetooth-probe"), !diagnosticProbeStarted,
+              let index = arguments.firstIndex(of: "--hardware-board-id"), index + 1 < arguments.count else { return }
+        let expected = arguments[index + 1]
+        guard expected.utf8.count == 12,
+              expected.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return }
+        diagnosticProbeStarted = true
+        let began = Date(), url = URL.documentsDirectory.appending(path: "hardware-bluetooth-probe.txt")
+        var lines: [String] = []
+        func record(_ stage: String) {
+            lines.append(String(format: "%.3f ", Date().timeIntervalSince(began)) + stage)
+            try? Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url, options: [.atomic, .completeFileProtection])
+        }
+        record("probe.begin")
+        guard !busy, PairingFlow.shared.canChangeRoute, !HardwareWiFiFlow.shared.busy else { record("probe.busy"); return }
+        guard let remembered = rememberedPeripheralID else { record("probe.no_remembered_peer"); return }
+        if let selected, selected.identifier != remembered { record("probe.other_peer_selected"); return }
+        if !connected && !connecting { reconnectRemembered() }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(25))
+        while !connected && ContinuousClock.now < deadline {
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { record("probe.cancelled"); return }
+            if !connecting && !reconnectRequested && selected == nil { record("connect.failed"); return }
+        }
+        guard !Task.isCancelled, connected, selected?.identifier == remembered else { record("connect.timeout"); return }
+        guard boardID == expected else { record("connect.board_id_mismatch"); return }
+        record("connect.verified_board_id_match")
+        guard supportsWiFiConfiguration else { record("read.characteristic_missing"); return }
+        do {
+            record("read.start")
+            if arguments.contains("--hardware-configure-wifi") {
+                let wifi = HardwareWiFiFlow.shared
+                wifi.readConfiguration(joinAfterSave: true)
+                let deadline = ContinuousClock.now.advanced(by: .seconds(65))
+                while wifi.busy && ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                record("configure.end saved=\(wifi.hasConfiguration && wifi.boardID == expected) joined=\(wifi.joined)")
+            } else {
+                _ = try await fetchWiFiConfiguration()
+                record("read.success credentials_discarded=true")
+            }
+        } catch {
+            let code = diagnosticWiFiErrorCode.map { String($0) } ?? "none"
+            record("read.failed att_domain=\(diagnosticWiFiErrorDomain ?? "none") att_code=\(code)")
+        }
+        record("probe.end bluetooth_connected=\(connected)")
+        #endif
+    }
 
     func scan() {
         guard selected == nil else { return }
@@ -138,7 +197,7 @@ struct BluetoothBoardDevice: Identifiable {
         stopScan(); reconnectRequested = false; epoch = UUID()
         connectionTimer?.cancel(); connectionTimer = nil
         finishCommand(.failure(AppError.unavailable("蓝牙连接已断开")))
-        finishWiFiRead(.failure(AppError.unavailable("蓝牙连接已断开，请重新连接后按 BOOT 重试")))
+        finishWiFiRead(.failure(AppError.unavailable("蓝牙连接已断开，请重新连接后在 App 重试配网")))
         if let selected {
             if selected.state != .disconnected { retiringDevices.insert(selected.identifier) }
             manager?.cancelPeripheralConnection(selected); selected.delegate = nil
@@ -152,7 +211,7 @@ struct BluetoothBoardDevice: Identifiable {
         guard connected, !busy else { return }
         let current = epoch
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.epoch == current, self.connected, !self.busy else { return }
             do {
                 try await self.ping()
                 guard self.epoch == current else { return }
@@ -202,6 +261,9 @@ struct BluetoothBoardDevice: Identifiable {
               let selected, let characteristic = wifiConfiguration else {
             throw AppError.unavailable("请先连接蓝牙；未提供 Wi-Fi 配置的板子需要更新固件")
         }
+        #if DEBUG
+        diagnosticWiFiErrorCode = nil; diagnosticWiFiErrorDomain = nil
+        #endif
         let id = UUID(), current = epoch, peerID = selected.identifier, expectedBoardID = boardID
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -212,8 +274,8 @@ struct BluetoothBoardDevice: Identifiable {
                 wifiReadTimer = Task { [weak self] in
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
                     guard let self, self.epoch == current, self.pendingWiFiRead?.id == id else { return }
-                    self.finishWiFiRead(.failure(AppError.unavailable("读取超时，请重新连接后按下板子的 BOOT，再在 60 秒内读取")))
-                    self.disconnect(message: "Wi-Fi 配置读取超时，蓝牙已停止；请重新连接后按 BOOT 重试")
+                    self.finishWiFiRead(.failure(AppError.unavailable("读取超时，请检查板子供电并重新连接蓝牙后重试")))
+                    self.disconnect(message: "Wi-Fi 配置读取超时，蓝牙已停止；请重新连接后在 App 重试")
                 }
                 selected.readValue(for: characteristic)
             }
@@ -236,7 +298,8 @@ struct BluetoothBoardDevice: Identifiable {
         guard !handshaking, connecting, let information, command != nil, response?.isNotifying == true else { return }
         handshaking = true; let current = epoch
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.epoch == current, self.connecting,
+                  self.handshaking, !self.connected else { return }
             do {
                 try await self.ping()
                 guard self.epoch == current else { return }
@@ -306,7 +369,7 @@ struct BluetoothBoardDevice: Identifiable {
         epoch = UUID(); let current = epoch
         connectionTimer?.cancel(); connectionTimer = nil
         finishCommand(.failure(AppError.unavailable("硬件服务已更新，请等待重新发现")))
-        finishWiFiRead(.failure(AppError.unavailable("硬件服务已更新，请等待重新连接后按 BOOT 重试")))
+        finishWiFiRead(.failure(AppError.unavailable("硬件服务已更新，请等待蓝牙重新连接后在 App 重试")))
         command = nil; response = nil; information = nil; informationCharacteristic = nil
         wifiConfiguration = nil; supportsWiFiConfiguration = false; handshaking = false
         connected = false; connecting = true; boardID = ""; usbConnected = false
@@ -348,8 +411,14 @@ struct BluetoothBoardDevice: Identifiable {
             guard let pending = pendingWiFiRead, pending.epoch == epoch,
                   pending.peerID == peripheral.identifier, pending.characteristic === characteristic,
                   characteristic === wifiConfiguration else { return }
+            #if DEBUG
+            if let failure = error as NSError? {
+                diagnosticWiFiErrorCode = failure.code
+                diagnosticWiFiErrorDomain = failure.domain == CBATTErrorDomain ? "CBATTErrorDomain" : "other"
+            }
+            #endif
             guard error == nil, let data = characteristic.value, !data.isEmpty, data.count <= 2048 else {
-                finishWiFiRead(.failure(AppError.unavailable("请先按下板子的 BOOT，再在 60 秒内读取 Wi-Fi 配置")))
+                finishWiFiRead(.failure(AppError.unavailable("读取 Wi-Fi 配置失败，请确认系统蓝牙配对已完成、板子 Wi-Fi 已启动")))
                 return
             }
             do {
@@ -357,7 +426,7 @@ struct BluetoothBoardDevice: Identifiable {
                 try profile.validate(expectedBoardID: pending.boardID)
                 finishWiFiRead(.success(profile))
             } catch {
-                finishWiFiRead(.failure(AppError.invalid("板子的 Wi-Fi 配置不匹配，请确认设备并按 BOOT 重试")))
+                finishWiFiRead(.failure(AppError.invalid("板子的 Wi-Fi 配置不匹配，请确认所选硬件后重试")))
             }
             return
         }

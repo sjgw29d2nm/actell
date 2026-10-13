@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 /* Saved access-point credentials survive restart independently of BLE.
- * New credentials are generated only during a physical, bonded BLE setup. */
+ * Credentials are created once at startup and read over paired encrypted BLE. */
 esp_err_t wifi_board_start(void);
 bool wifi_board_online(void);
 uint32_t wifi_board_epoch(void);

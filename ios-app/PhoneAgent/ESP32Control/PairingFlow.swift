@@ -68,6 +68,10 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     var lastFailure: String?
     var ready = false
     var hasRecord = false
+    var supportsOnDevicePairing: Bool {
+        if #available(iOS 27.0, *) { return true }
+        return false
+    }
     var pin: String?
     var message = "请先完成系统配对"
     var image: UIImage?
@@ -106,6 +110,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func pairAgain() {
         guard canChangeRoute, !HardwareWiFiFlow.shared.busy else { return }
+        guard supportsOnDevicePairing else {
+            message = "当前系统重新授权需连接 Mac；已保存的手机授权会保留"
+            lastFailure = message
+            return
+        }
         resetPairing()
         if !hasRecord { startPairing() }
     }
@@ -125,6 +134,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         guard !running, !agentReserved, !HardwareWiFiFlow.shared.busy else { return }
         hasRecord = store.exists
         guard !hasRecord else { message = "请连接 \(route.connectionName)"; return }
+        guard supportsOnDevicePairing else {
+            message = "当前 iOS 首次手机操控授权需通过 Mac 完成；授权保存后可使用 USB 或硬件 Wi-Fi"
+            lastFailure = message
+            return
+        }
         guard registeredBackgroundTask else { message = "系统配对后台任务未注册，请重新打开 App"; return }
         guard #available(iOS 26.0, *) else { message = "系统交互配对需要 iOS 26 或更新版本的持续后台任务"; return }
         generation = UUID(); running = true; pairingActive = true; message = "正在申请配对后台任务，请等待入口就绪"
@@ -681,13 +695,13 @@ struct PairingSection: View {
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
-                    if !flow.ready && !flow.running && !flow.agentReserved {
+                    if !flow.ready && !flow.running && !flow.agentReserved && (flow.hasRecord || flow.supportsOnDevicePairing) {
                         Button(flow.route == .ncmDeveloper ? (flow.hasRecord ? "连接并检查" : "授权手机操控") : (flow.hasRecord ? "连接" : "配对")) {
                             if flow.hasRecord { flow.verify() }
                             else { flow.startPairing() }
                         }.disabled(flow.running || flow.agentReserved || HardwareWiFiFlow.shared.busy)
                     }
-                    if !flow.ready && flow.hasRecord && !flow.running && !flow.agentReserved {
+                    if !flow.ready && flow.hasRecord && !flow.running && !flow.agentReserved && flow.supportsOnDevicePairing {
                         Button("重新配对") { flow.pairAgain() }
                             .disabled(!flow.canChangeRoute || HardwareWiFiFlow.shared.busy)
                             .accessibilityIdentifier("pairAgain")
@@ -702,6 +716,10 @@ struct PairingSection: View {
             }
         } header: {
             Text(flow.route == .ncmDeveloper ? "3 · 手机操控验证" : "连接与验证")
+        } footer: {
+            if !flow.hasRecord && !flow.supportsOnDevicePairing {
+                Text("当前 iOS 首次授权需将手机连接 Mac 完成，蓝牙配对不能代替手机操控授权。授权会保存，之后可直接连接 USB 或已配置的硬件 Wi-Fi。")
+            }
         }
         if flow.ready {
             Section("服务验证") {

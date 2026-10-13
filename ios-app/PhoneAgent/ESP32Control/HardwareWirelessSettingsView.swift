@@ -113,7 +113,7 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
         }
         throw AppError.unavailable("USB 当前优先，请先拔下手机与硬件之间的 USB 线，再配置无线连接")
     }
-    func readConfiguration() {
+    func readConfiguration(joinAfterSave: Bool = false) {
         guard !busy else { return }
         do { try requireConfigurationChangeAllowed() }
         catch { statusText = safeMessage(error); return }
@@ -121,10 +121,15 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
         guard bluetooth.connected, !bluetooth.busy else { statusText = "请先连接蓝牙"; return }
         PairingFlow.shared.cancel()
         let id = UUID(); operationID = id; busy = true
-        statusText = "读取配置前，请按下板子的 BOOT；按下后 60 秒内读取"
+        statusText = "正在通过蓝牙读取硬件 Wi-Fi 配置"
         operation = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.finishOperation(id) }
+            var saved = false
+            defer {
+                let continueJoin = saved && joinAfterSave && self.operationID == id
+                self.finishOperation(id)
+                if continueJoin { self.join() }
+            }
             do {
                 let received = try await bluetooth.fetchWiFiConfiguration()
                 try Task.checkCancellation()
@@ -137,6 +142,7 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
                 try SecretStore.save(value, account: Self.secretAccount)
                 self.profile = received; self.ssid = received.ssid; self.boardID = received.id; self.joined = false
                 self.statusText = "配置已保存到本机，可以加入硬件 Wi-Fi；之后不必持续连接蓝牙"
+                saved = true
             } catch is CancellationError {
                 if self.operationID == id { self.statusText = "读取已停止，原配置保留" }
             } catch {
@@ -270,7 +276,7 @@ struct HardwareWiFiProfile: Codable, Sendable, CustomStringConvertible, CustomDe
     }
     private func safeMessage(_ error: Error) -> String {
         if let error = error as? AppError { return error.localizedDescription }
-        return "硬件配置未完成，请检查蓝牙连接、BOOT 授权窗口和 Wi-Fi 状态后重试"
+        return "硬件配置未完成，请检查蓝牙配对、板子供电和 Wi-Fi 状态后重试"
     }
 }
 
@@ -292,7 +298,7 @@ struct HardwareWirelessSettingsView: View {
                         .disabled(!canChangeBluetooth)
                 }
             } header: { Text("连接方式") } footer: {
-                Text("首次无线配置：连接蓝牙 → 按 BOOT 读取配置 → 加入硬件 Wi-Fi → 完成系统配对并连接验证。配置保存后可只用 Wi-Fi，蓝牙无需持续连接。")
+                Text("首次无线配置：连接蓝牙 → 在 App 配置并连接 Wi-Fi → 完成手机操控授权并检查连接。全程无需按板子按钮。配置保存后可只用 Wi-Fi，蓝牙无需持续连接。")
                 Text("USB 优先。同一次操控固定使用一种通道；拔线或网络断开后会停止，请重新连接，不会自动重发动作。")
             }
             bluetoothSection
@@ -330,7 +336,7 @@ struct HardwareWirelessSettingsView: View {
         .fullScreenCover(isPresented: $showingTouchTest) { TouchVerificationView(flow: control) }
         .confirmationDialog("清除本机硬件 Wi-Fi 配置和连接记录？", isPresented: $clearConfirmation, titleVisibility: .visible) {
             Button("清除", role: .destructive) { wifi.clearConfiguration() }
-        } message: { Text("下次无线使用需重新连接蓝牙并按 BOOT 读取配置。系统开发者配对身份会保留。") }
+        } message: { Text("下次无线使用需重新连接蓝牙，在 App 重新配网。系统开发者配对身份会保留。") }
         .onAppear { wifi.reload(); control.resume() }
         .onDisappear { bluetooth.stopScan() }
     }
@@ -368,7 +374,7 @@ struct HardwareWirelessSettingsView: View {
                     .disabled(!wifi.canConfigure)
                     .accessibilityIdentifier("joinHardwareWiFi")
             }
-            Button(wifi.hasConfiguration ? "重新读取并保存 Wi-Fi 配置" : "读取并保存 Wi-Fi 配置") { wifi.readConfiguration() }
+            Button(wifi.hasConfiguration ? "重新配网" : "配置并连接 Wi-Fi") { wifi.readConfiguration(joinAfterSave: true) }
                 .disabled(!wifi.canConfigure || !bluetooth.connected || !bluetooth.supportsWiFiConfiguration)
                 .accessibilityIdentifier("readHardwareWiFiConfiguration")
             if wifi.busy {
@@ -380,7 +386,7 @@ struct HardwareWirelessSettingsView: View {
                     .disabled(!wifi.canConfigure)
             }
         } header: { Text("2 · Wi-Fi 配置") } footer: {
-            Text("先连接蓝牙，再按板子的 BOOT 按钮，在 60 秒内读取。正在使用 USB 或执行任务时，请先停止并拔下手机与硬件之间的 USB 线再配网；编程 USB 供电可保留。")
+            Text("连接蓝牙后，点击「配置并连接 Wi-Fi」，随办会读取并保存配置，再申请加入硬件热点。只需确认 iPhone 的系统入网提示，无需按硬件按钮。配网前请停止当前操控并拔下手机与硬件间的 USB 线；编程 USB 供电可保留。")
             if bluetooth.connected && !bluetooth.supportsWiFiConfiguration { Text("当前固件未提供 Wi-Fi 配置，需要先更新硬件固件。") }
             Text("手机直接连接硬件热点，无需让手机和板子加入同一个家用 Wi-Fi。硬件需在附近；异地远程连接仍需后续服务。")
             Text("硬件热点不提供互联网。随办调用智谱等模型时，手机还需可用的蜂窝网络或其他独立上网路径，实际联网情况需在手机上验证。")

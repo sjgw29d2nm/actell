@@ -1,7 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "wifi_board.h"
-#include "bluetooth_board.h"
-#include "driver/gpio.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -145,32 +143,13 @@ failed:
     if(wifi_registered)(void)esp_event_handler_instance_unregister(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_handler);
     esp_netif_destroy_default_wifi(access_point);access_point=NULL;(void)esp_wifi_deinit();return result;
 }
-static void setup_button_task(void *unused) {
-    (void)unused;bool pressed=gpio_get_level(GPIO_NUM_0)==0;
-    for(;;) {
-        bool now_pressed=gpio_get_level(GPIO_NUM_0)==0;
-        if(now_pressed&&!pressed&&bluetooth_board_open_wifi_window()) {
-            xSemaphoreTake(credentials_lock,portMAX_DELAY);
-            esp_err_t result=credentials_ready?ESP_OK:load_credentials(true);
-            if(result==ESP_OK)result=start_access_point();
-            xSemaphoreGive(credentials_lock);
-            if(result!=ESP_OK){bluetooth_board_close_wifi_window();ESP_LOGW(TAG,"physical Wi-Fi setup failed: %s; NVS preserved",esp_err_to_name(result));}
-            else ESP_LOGI(TAG,"Wi-Fi setup authorized for the current bonded BLE connection for 60 seconds");
-        }
-        pressed=now_pressed;vTaskDelay(pdMS_TO_TICKS(50));
-    }
-}
 esp_err_t wifi_board_start(void) {
     esp_err_t result=nvs_flash_init();if(result!=ESP_OK)return result;
     uint8_t mac[6];result=esp_read_mac(mac,ESP_MAC_WIFI_STA);if(result!=ESP_OK)return result;
     snprintf(device_id,sizeof device_id,"%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     credentials_lock=xSemaphoreCreateMutex();if(!credentials_lock)return ESP_ERR_NO_MEM;
-    gpio_config_t button={.pin_bit_mask=1ULL<<GPIO_NUM_0,.mode=GPIO_MODE_INPUT,.pull_up_en=GPIO_PULLUP_ENABLE,.pull_down_en=GPIO_PULLDOWN_DISABLE,.intr_type=GPIO_INTR_DISABLE};
-    result=gpio_config(&button);if(result!=ESP_OK)return result;
-    result=load_credentials(false);
+    result=load_credentials(true);
     if(result==ESP_OK)result=start_access_point();
-    else if(result==ESP_ERR_NVS_NOT_FOUND)result=ESP_OK;
-    if(xTaskCreate(setup_button_task,"wifi_setup",6144,NULL,4,NULL)!=pdPASS)return ESP_ERR_NO_MEM;
     return result;
 }
 bool wifi_board_online(void) { return atomic_load(&access_point_ready)&&atomic_load(&peer_ready); }

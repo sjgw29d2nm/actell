@@ -34,36 +34,27 @@ static uint16_t response_handle;
 static char device_id[13];
 static char response[21]="SB1 READY";
 static int gap_event(struct ble_gap_event *event,void *argument);
-static portMUX_TYPE window_lock=portMUX_INITIALIZER_UNLOCKED;
-static uint16_t connected_handle=BLE_HS_CONN_HANDLE_NONE,wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;
-static uint32_t connection_epoch=1,wifi_window_epoch;
-static int64_t wifi_window_deadline;
-
-void bluetooth_board_close_wifi_window(void) {
-    taskENTER_CRITICAL(&window_lock);wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
-}
-bool bluetooth_board_open_wifi_window(void) {
-    taskENTER_CRITICAL(&window_lock);uint16_t handle=connected_handle;uint32_t epoch=connection_epoch;taskEXIT_CRITICAL(&window_lock);
-    struct ble_gap_conn_desc connection;
-    if(handle==BLE_HS_CONN_HANDLE_NONE||ble_gap_conn_find(handle,&connection)||!connection.sec_state.encrypted||!connection.sec_state.bonded)return false;
-    taskENTER_CRITICAL(&window_lock);
-    bool valid=connected_handle==handle&&connection_epoch==epoch;
-    if(valid){wifi_window_handle=handle;wifi_window_epoch=epoch;wifi_window_deadline=esp_timer_get_time()+60000000;}
-    taskEXIT_CRITICAL(&window_lock);return valid;
-}
 
 static int access_characteristic(uint16_t connection,uint16_t attribute,
                                  struct ble_gatt_access_ctxt *context,void *argument) {
     (void)attribute;
     uintptr_t kind=(uintptr_t)argument;
     if(context->op==BLE_GATT_ACCESS_OP_READ_CHR&&kind==4) {
-        taskENTER_CRITICAL(&window_lock);
-        bool allowed=connection==wifi_window_handle&&wifi_window_epoch==connection_epoch&&esp_timer_get_time()<wifi_window_deadline;
-        taskEXIT_CRITICAL(&window_lock);
         struct ble_gap_conn_desc security;
-        if(!allowed||ble_gap_conn_find(connection,&security)||!security.sec_state.encrypted||!security.sec_state.bonded)return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        if(ble_gap_conn_find(connection,&security)||!security.sec_state.encrypted) {
+            ESP_LOGI(TAG,"Wi-Fi INFO denied: encrypted connection required");
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        }
+        if(!security.sec_state.bonded) {
+            ESP_LOGI(TAG,"Wi-Fi INFO denied: Bluetooth pairing must complete");
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
+        }
         char information[512];
-        if(wifi_board_information(information,sizeof information)!=ESP_OK)return BLE_ATT_ERR_UNLIKELY;
+        esp_err_t information_status=wifi_board_information(information,sizeof information);
+        if(information_status!=ESP_OK) {
+            ESP_LOGW(TAG,"Wi-Fi INFO not ready: %s",esp_err_to_name(information_status));
+            return BLE_ATT_ERR_UNLIKELY;
+        }
         int result=os_mbuf_append(context->om,information,(uint16_t)strlen(information));
         memset(information,0,sizeof information);return result==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
     }
@@ -132,12 +123,10 @@ static int gap_event(struct ble_gap_event *event,void *argument) {
     (void)argument;
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
-        taskENTER_CRITICAL(&window_lock);++connection_epoch;connected_handle=event->connect.status==0?event->connect.conn_handle:BLE_HS_CONN_HANDLE_NONE;wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
         ESP_LOGI(TAG,"connection result=%d",event->connect.status);
         if (event->connect.status!=0) advertise();
         break;
     case BLE_GAP_EVENT_DISCONNECT:
-        taskENTER_CRITICAL(&window_lock);++connection_epoch;connected_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
         snprintf(response,sizeof response,"SB1 READY");
         ESP_LOGI(TAG,"disconnected reason=%d",event->disconnect.reason);
         advertise();
@@ -153,7 +142,6 @@ static int gap_event(struct ble_gap_event *event,void *argument) {
 }
 
 static void host_reset(int reason) {
-    taskENTER_CRITICAL(&window_lock);++connection_epoch;connected_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_handle=BLE_HS_CONN_HANDLE_NONE;wifi_window_deadline=0;taskEXIT_CRITICAL(&window_lock);
     ESP_LOGE(TAG,"host reset reason=%d",reason);
 }
 static void host_sync(void) {
