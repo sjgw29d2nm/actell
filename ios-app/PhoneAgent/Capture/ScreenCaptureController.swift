@@ -31,10 +31,36 @@ struct CaptureStreamLifecycle {
     }
 }
 
+/// Capture state is available on every supported OS. Only the runtime factory
+/// creates the iOS 27 ScreenCaptureKit implementation.
+@MainActor class ScreenCaptureController: NSObject, ObservableObject {
+    @Published fileprivate(set) var status = "全屏采集需 iOS 27；当前可通过手机操控连接获取截图。"
+    @Published fileprivate(set) var active = false
+    @Published fileprivate(set) var busy = false
+    var isSupported: Bool { false }
+    let frames = LatestScreenFrame()
+    var onLoss: (@MainActor () -> Void)?
+    var onDiagnostic: (@MainActor (String) -> Void)?
+
+    static func make() -> ScreenCaptureController {
+        #if canImport(ScreenCaptureKit) && !targetEnvironment(simulator)
+        if #available(iOS 27.0, *) { return ScreenCaptureKitController() }
+        #endif
+        return ScreenCaptureController()
+    }
+    func present() { onDiagnostic?("capture.unavailable requires iOS 27") }
+    func stop() async {
+        let wasActive = frames.diagnostics().active
+        frames.invalidate(); active = false; busy = false
+        if wasActive { onLoss?() }
+    }
+}
+
 #if canImport(ScreenCaptureKit) && !targetEnvironment(simulator)
 import ScreenCaptureKit
 
 // Picker filters are read-only framework snapshots, handed once to the main actor.
+@available(iOS 27.0, *)
 private struct PickerSelection: @unchecked Sendable { let filter: SCContentFilter }
 
 @available(iOS 27.0, *)
@@ -75,23 +101,20 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
 }
 
 @available(iOS 27.0, *)
-@MainActor final class ScreenCaptureController: NSObject, ObservableObject, SCContentSharingPickerObserver, SCStreamDelegate {
-    @Published private(set) var status = "未采集。全屏采集需在系统面板中确认。"
-    @Published private(set) var active = false
-    @Published private(set) var busy = false
-    let isSupported = true
-    let frames = LatestScreenFrame()
+@MainActor private final class ScreenCaptureKitController: ScreenCaptureController, SCContentSharingPickerObserver, SCStreamDelegate {
+    override var isSupported: Bool { true }
     private var stream: SCStream?
     private var sink: ScreenSampleSink?
     private var lifecycle = CaptureStreamLifecycle()
     private var pending = false
     private var monitor: Task<Void, Never>?
     private let sampleQueue = DispatchQueue(label: "phoneagent.capture.latest", qos: .userInitiated)
-    var onLoss: (@MainActor () -> Void)?
-    var onDiagnostic: (@MainActor (String) -> Void)?
-
-    override init() { super.init(); SCContentSharingPicker.shared.add(self) }
-    func present() {
+    override init() {
+        super.init()
+        status = "未采集。全屏采集需在系统面板中确认。"
+        SCContentSharingPicker.shared.add(self)
+    }
+    override func present() {
         guard UIApplication.shared.applicationState == .active, !pending, stream == nil else { return }
         pending = true; busy = true
         let picker = SCContentSharingPicker.shared
@@ -107,7 +130,7 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
         status = message
         if hadSession { onLoss?() }
     }
-    func stop() async {
+    override func stop() async {
         pending = false
         revoke(message: "采集已停止")
         guard let target = stream, let token = lifecycle.token else {
@@ -200,18 +223,5 @@ final class ScreenSampleSink: NSObject, SCStreamOutput, @unchecked Sendable {
             self.finish(token: token, message: "系统已停止采集（\(code)）")
         }
     }
-}
-#else
-// Xcode 27A266a has no ScreenCaptureKit in the iOS Simulator SDK.
-@MainActor final class ScreenCaptureController: ObservableObject {
-    @Published private(set) var status = "此 Simulator SDK 不含 ScreenCaptureKit；需 iOS 27 真机授权"
-    @Published private(set) var active = false
-    @Published private(set) var busy = false
-    let isSupported = false
-    let frames = LatestScreenFrame()
-    var onLoss: (@MainActor () -> Void)?
-    var onDiagnostic: (@MainActor (String) -> Void)?
-    func present() {}
-    func stop() async { let wasActive = frames.diagnostics().active; frames.invalidate(); if wasActive { onLoss?() } }
 }
 #endif

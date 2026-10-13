@@ -905,6 +905,7 @@
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"HEADER_SEARCH_PATHS" = ("$(inherited)", "$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include",);
 				"OTHER_LDFLAGS" = ("$(inherited)", "-lphoneagent_ncm_backend", "-framework", "Security", "-framework", "SystemConfiguration",);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = ("$(inherited)", "-weak_framework", "ScreenCaptureKit",);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = ("$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release",);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = ("$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release",);
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
@@ -940,6 +941,7 @@
 				"ENABLE_USER_SCRIPT_SANDBOXING" = "NO";
 				"HEADER_SEARCH_PATHS" = ("$(inherited)", "$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include",);
 				"OTHER_LDFLAGS" = ("$(inherited)", "-lphoneagent_ncm_backend", "-framework", "Security", "-framework", "SystemConfiguration",);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = ("$(inherited)", "-weak_framework", "ScreenCaptureKit",);
 				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = ("$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release",);
 				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = ("$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release",);
 				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
@@ -1675,7 +1677,7 @@
 			"buildSettings" = {
 				"APP_DISPLAY_NAME" = "随办";
 				"SDKROOT" = "iphoneos";
-				"IPHONEOS_DEPLOYMENT_TARGET" = "27.0";
+				"IPHONEOS_DEPLOYMENT_TARGET" = "26.5";
 				"SWIFT_VERSION" = "5.0";
 				"SWIFT_STRICT_CONCURRENCY" = "complete";
 				"CLANG_ENABLE_MODULES" = "YES";
@@ -1693,7 +1695,7 @@
 			"buildSettings" = {
 				"APP_DISPLAY_NAME" = "随办";
 				"SDKROOT" = "iphoneos";
-				"IPHONEOS_DEPLOYMENT_TARGET" = "27.0";
+				"IPHONEOS_DEPLOYMENT_TARGET" = "26.5";
 				"SWIFT_VERSION" = "5.0";
 				"SWIFT_STRICT_CONCURRENCY" = "complete";
 				"CLANG_ENABLE_MODULES" = "YES";

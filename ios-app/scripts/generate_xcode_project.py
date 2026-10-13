@@ -9,6 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
 APP_DISPLAY_NAME = PROJECT_CONFIG["settings"]["base"]["APP_DISPLAY_NAME"]
+IOS_DEPLOYMENT_TARGET = str(PROJECT_CONFIG["options"]["deploymentTarget"]["iOS"])
 objects = {}
 
 
@@ -127,7 +128,8 @@ def generate():
             settings.update(ARCHS="arm64", ENABLE_USER_SCRIPT_SANDBOXING="NO",
                             HEADER_SEARCH_PATHS=["$(inherited)", "$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include"],
                             OTHER_LDFLAGS=["$(inherited)", "-lphoneagent_ncm_backend", "-framework", "Security", "-framework", "SystemConfiguration"],
-                            **{"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": ["$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release"],
+                            **{"OTHER_LDFLAGS[sdk=iphoneos*]": ["$(inherited)", "-weak_framework", "ScreenCaptureKit"],
+                               "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": ["$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release"],
                                "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": ["$(inherited)", "$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release"]})
             phases.insert(0, add("NCMBackendBuild", "PBXShellScriptBuildPhase", buildActionMask=2147483647,
                                  files=[], inputPaths=[], outputPaths=[], runOnlyForDeploymentPostprocessing=0,
@@ -156,7 +158,7 @@ def generate():
                            buildPhases=phases, buildRules=[], dependencies=dependencies, packageProductDependencies=package_products))
     products_group = add("Products", "PBXGroup", name="Products", children=products, sourceTree="<group>")
     main_group = add("RootGroup", "PBXGroup", children=groups + [products_group], sourceTree="<group>")
-    common = dict(APP_DISPLAY_NAME=APP_DISPLAY_NAME, SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET="27.0", SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
+    common = dict(APP_DISPLAY_NAME=APP_DISPLAY_NAME, SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET=IOS_DEPLOYMENT_TARGET, SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
                   CLANG_ENABLE_MODULES="YES", CLANG_ENABLE_OBJC_ARC="YES", GCC_C_LANGUAGE_STANDARD="gnu17")
     project = add("Project", "PBXProject", attributes=dict(LastUpgradeCheck="2700", BuildIndependentTargetsInParallel="YES"),
                   buildConfigurationList=configs("Project", common), compatibilityVersion="Xcode 14.0", developmentRegion="en",
