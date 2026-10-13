@@ -32,7 +32,7 @@ enum BackgroundPlaybackMode: String, CaseIterable, Identifiable {
 }
 
 /// All process-wide audio session mutations share one serial worker. Native
-/// activation is asynchronous; waiting for its callback never blocks MainActor.
+/// iOS 27 activation is asynchronous; older activation runs on the worker queue.
 /// Keeping deactivation in the same queue prevents an old stop overtaking a new start.
 final class TaskAudioSession: @unchecked Sendable {
     static let shared = TaskAudioSession()
@@ -60,10 +60,16 @@ final class TaskAudioSession: @unchecked Sendable {
                 do {
                     let session = AVAudioSession.sharedInstance()
                     try session.setCategory(.playback, mode: mode, options: [.mixWithOthers])
-                    session.activate(options: []) { activated, error in
-                        if let error { continuation.resume(throwing: error) }
-                        else if activated { continuation.resume() }
-                        else { continuation.resume(throwing: AppError.unavailable("Audio session activation declined")) }
+                    if #available(iOS 27.0, *) {
+                        session.activate(options: []) { activated, error in
+                            if let error { continuation.resume(throwing: error) }
+                            else if activated { continuation.resume() }
+                            else { continuation.resume(throwing: AppError.unavailable("Audio session activation declined")) }
+                            finished()
+                        }
+                    } else {
+                        try session.setActive(true)
+                        continuation.resume()
                         finished()
                     }
                 } catch { continuation.resume(throwing: error); finished() }
@@ -73,7 +79,13 @@ final class TaskAudioSession: @unchecked Sendable {
     func deactivate() {
         enqueue { finished in
             dispatchPrecondition(condition: .notOnQueue(.main))
-            AVAudioSession.sharedInstance().deactivate(options: [.notifyOthersOnDeactivation]) { _, _ in finished() }
+            let session = AVAudioSession.sharedInstance()
+            if #available(iOS 27.0, *) {
+                session.deactivate(options: [.notifyOthersOnDeactivation]) { _, _ in finished() }
+            } else {
+                try? session.setActive(false, options: [.notifyOthersOnDeactivation])
+                finished()
+            }
         }
     }
 }
