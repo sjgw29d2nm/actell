@@ -225,7 +225,7 @@ private struct ScheduledTaskEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("任务内容") {
+                Section {
                     TextField("任务名称", text: $name).accessibilityIdentifier("scheduledName")
                     VStack(alignment: .leading, spacing: 6) {
                         Text("想完成什么").font(.caption).foregroundStyle(.secondary)
@@ -235,7 +235,7 @@ private struct ScheduledTaskEditor: View {
                         Text("要求与结果").font(.caption).foregroundStyle(.secondary)
                         TextEditor(text: $requirements).frame(minHeight: 82).accessibilityIdentifier("scheduledRequirements")
                     }
-                } footer: { Text("写清使用哪个 App、要处理哪些内容，以及结果是什么。同 App 内和跨 App 的多步任务都支持这样描述。") }
+                } header: { Text("任务内容") } footer: { Text("写清使用哪个 App、要处理哪些内容，以及结果是什么。同 App 内和跨 App 的多步任务都支持这样描述。") }
                 Section("执行时间") {
                     DatePicker("首次执行", selection: $firstRunAt, displayedComponents: [.date, .hourAndMinute])
                         .accessibilityIdentifier("scheduledFirstRunAt")
