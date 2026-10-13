@@ -13,9 +13,9 @@ enum DeviceControlRoute: String, Sendable {
         // Retained capture route is not exposed by this setting.
         defaults.string(forKey: defaultsKey) == Self.ncmDeveloper.rawValue ? .ncmDeveloper : .vpnLoopback
     }
-    var title: String { self == .vpnLoopback ? "VPN 回环" : "ESP32 NCM" }
-    var connectionName: String { self == .vpnLoopback ? "VPN 回环" : "ESP32" }
-    var controlTitle: String { self == .vpnLoopback ? "VPN 回环控制" : "ESP32 控制" }
+    var title: String { self == .vpnLoopback ? "VPN 回环" : "随办硬件v1" }
+    var connectionName: String { self == .vpnLoopback ? "VPN 回环" : "随办硬件v1" }
+    var controlTitle: String { self == .vpnLoopback ? "VPN 回环控制" : "随办硬件v1 控制" }
     var modelContext: String {
         switch self {
         case .ncmDeveloper:

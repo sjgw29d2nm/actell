@@ -239,16 +239,16 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     message = "正在经 VPN 回环验证身份并建立 CoreDevice 隧道"
                     try await backend.connectLocalVPN(identity: identity, authorization: authorization, pairingPort: port, configuration: configuration)
                 } else {
-                    message = "正在从 ESP32 发现手机 RemotePairing 服务"
+                    message = "正在从随办硬件v1 发现手机 RemotePairing 服务"
                     var discovery = try await client.request(.discoverIPv4)
                     if discovery.endpoints?.contains(where: { $0.service == "remotepairing" }) != true {
                         discovery = try await client.request(.discoverIPv6)
                     }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     guard let endpoint = discovery.endpoints?.first(where: { $0.service == "remotepairing" }) else {
-                        throw NCMControlError.unavailable("未发现手机服务，请检查 ESP32 连接")
+                        throw NCMControlError.unavailable("未发现手机服务，请检查随办硬件v1 连接")
                     }
-                    message = "正在经 ESP32 验证身份并建立开发者隧道"
+                    message = "正在经随办硬件v1 验证身份并建立开发者隧道"
                     try await backend.connect(identity: identity, authorization: authorization, discovery: discovery, endpoint: endpoint)
                 }
                 try await backend.checkDeveloperReadiness()
@@ -519,7 +519,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         if error is CancellationError { return "已停止" }
         return route == .vpnLoopback
             ? "连接失败，请检查 VPN 回环配置、开发者模式及本地网络权限"
-            : "连接失败，请检查 ESP32 固件、NCM 接口和本地网络权限"
+            : "连接失败，请检查随办硬件v1 固件、USB 网络接口和本地网络权限"
     }
     #if DEBUG
     private var backgroundProbeStarted = false
