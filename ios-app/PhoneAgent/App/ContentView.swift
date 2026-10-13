@@ -23,27 +23,13 @@ struct ContentView: View {
         NavigationStack(path: $path) {
             Group {
                 if sessions.conversations.isEmpty {
-                    VStack(spacing: 22) {
-                        Spacer()
-                        Image("BrandMark").resizable().scaledToFit()
-                            .frame(width: 98, height: 98)
-                            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                            .accessibilityLabel("随办")
-                        VStack(spacing: 8) {
-                            Text("从一个想法开始").font(.title2.bold())
-                            Text("与 Agent 对话，查看执行过程，\n在需要时确认下一步。").multilineTextAlignment(.center).foregroundStyle(.secondary)
-                        }
-                        Button(action: createConversation) { Label("新建会话", systemImage: "plus").padding(.horizontal, 20).padding(.vertical, 6) }
-                            .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("newConversation")
-                        Spacer(); Spacer()
-                    }.padding(28).frame(maxWidth: .infinity)
+                    emptyState
                 } else {
                     List {
                         if let warning = sessions.warning { Label(warning, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange) }
                         ForEach(visible) { session in
                             NavigationLink(value: session.id) {
-                                Text(session.title).font(.headline).lineLimit(1)
-                                    .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                                conversationRow(session)
                             }
                             .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 16))
                             .swipeActions { if !model.isRunning(in: session.id) { Button("删除", role: .destructive) { sessions.delete(session.id) } } }
@@ -98,6 +84,64 @@ struct ContentView: View {
             if phase == .active { routeActivityNavigation(); routePreparedTask() }
         }
         .onChange(of: panel) { _, value in if value == nil { routePreparedTask() } }
+    }
+    private var emptyState: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 26) {
+                    Image("BrandMark").resizable().scaledToFit()
+                        .frame(width: 88, height: 88)
+                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .shadow(color: .blue.opacity(0.14), radius: 18, y: 8)
+                        .accessibilityLabel("随办")
+                    VStack(spacing: 10) {
+                        Text("把想做的事，交给随办").font(.title2.bold())
+                        Text("说出你的目标，一起把事情办好。\n对话和执行进展都会保留在这里。")
+                            .font(.subheadline).multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary).lineSpacing(4)
+                    }
+                    Button(action: createConversation) {
+                        Label("新建会话", systemImage: "plus")
+                            .font(.headline).frame(maxWidth: .infinity).padding(.vertical, 8)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .accessibilityIdentifier("newConversation")
+                    HStack(spacing: 12) {
+                        VStack(spacing: 7) { Image(systemName: "bubble.left"); Text("说出目标") }.frame(maxWidth: .infinity)
+                        VStack(spacing: 7) { Image(systemName: "list.bullet"); Text("查看进展") }.frame(maxWidth: .infinity)
+                        VStack(spacing: 7) { Image(systemName: "checkmark.circle"); Text("确认结果") }.frame(maxWidth: .infinity)
+                    }.font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 28).padding(.vertical, 40)
+                .frame(maxWidth: 460)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+        }
+    }
+    private func conversationRow(_ session: AgentConversation) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: model.isRunning(in: session.id) ? "bolt.fill" : "bubble.left.and.bubble.right")
+                .font(.body.weight(.medium)).foregroundStyle(.blue)
+                .frame(width: 42, height: 42)
+                .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(session.title).font(.headline).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(session.updatedAt, format: .dateTime.month().day())
+                        .font(.caption).foregroundStyle(.tertiary).fixedSize()
+                }
+                Text(session.preview).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                if model.isRunning(in: session.id) {
+                    Text(session.phase == .awaitingApproval ? "等待确认" : "正在执行")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(session.phase == .awaitingApproval ? Color.orange : Color.blue)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background((session.phase == .awaitingApproval ? Color.orange : Color.blue).opacity(0.10), in: Capsule())
+                }
+            }
+        }.padding(.vertical, 6)
     }
     private func routeActivityNavigation() {
         // A completion can arrive while UIKit is still displaying another app.

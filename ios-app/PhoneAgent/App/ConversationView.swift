@@ -258,19 +258,46 @@ struct ConversationView: View {
         .contentShape(Rectangle())
     }
     private func welcome(_ mode: RunMode) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Image("BrandMark").resizable().scaledToFit()
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                .padding(.top, 34).accessibilityLabel("随办")
-            Text("有什么可以一起完成？").font(.title2.bold())
-            Text(mode == .demo ? "这个会话使用固定脚本，带你走一遍查看屏幕、确认点击和检查结果的流程。" : "描述你的问题或目标。Agent 的回复和每次工具执行都会保留在这里。")
-                .foregroundStyle(.secondary)
-            Button(mode == .demo ? "体验一次完整演示" : "帮我梳理一个任务的执行步骤") {
-                draft = mode == .demo ? "查看演示画面，点击计数器一次，再检查结果" : "帮我梳理一个任务的执行步骤"
-                focused = true
-            }.buttonStyle(.bordered).accessibilityIdentifier("suggestedPrompt")
-        }.padding(.bottom, 24)
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 16) {
+                Image("BrandMark").resizable().scaledToFit()
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                    .accessibilityLabel("随办")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("今天想办点什么？").font(.title2.bold())
+                    Text(mode == .demo ? "跟随演示，体验查看屏幕、确认点击和检查结果的完整流程。" : "描述你的问题或目标，随办帮你梳理下一步。\n回复和每次执行进展都可以在这里查看。")
+                        .font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
+                }
+            }
+            VStack(spacing: 10) {
+                suggestion(title: mode == .demo ? "体验一次完整演示" : "梳理一个任务", detail: mode == .demo ? "走一遍完整执行流程" : "把目标拆成清晰的执行步骤", symbol: "list.bullet.rectangle",
+                           prompt: mode == .demo ? "查看演示画面，点击计数器一次，再检查结果" : "帮我梳理一个任务的执行步骤")
+                    .accessibilityIdentifier("suggestedPrompt")
+                if mode != .demo {
+                    suggestion(title: "让手机帮我办", detail: "描述你想在手机上完成的事", symbol: "iphone",
+                               prompt: "请帮我在手机上完成这个任务：")
+                }
+            }
+        }.padding(.top, 28).padding(.bottom, 24)
+    }
+    private func suggestion(title: String, detail: String, symbol: String, prompt: String) -> some View {
+        Button {
+            draft = prompt
+            focused = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.title3).foregroundStyle(.blue).frame(width: 26)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.left").font(.caption.weight(.medium)).foregroundStyle(.tertiary)
+            }
+            .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        }.buttonStyle(.plain)
     }
     private func completedTurn(_ turn: ConversationTurn) -> some View {
         let folded = turn.foldedMessages
@@ -370,21 +397,17 @@ struct ConversationView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
             VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 4) {
-                    if !focused { attachmentButton }
-                    messageField
-                    if !focused { sendButton }
-                }
-                .padding(.leading, focused ? 10 : 4)
-                .padding(.trailing, focused ? 10 : 9)
-                if focused {
-                    HStack(spacing: 8) {
-                        attachmentButton
+                if session?.mode != .demo {
+                    HStack {
+                        modelPicker.font(.caption.weight(.medium)).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
-                        if session?.mode != .demo { modelPicker.font(.caption).foregroundStyle(.secondary) }
-                        sendButton
-                    }.padding(.leading, 4).padding(.trailing, 8)
+                    }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 2)
                 }
+                HStack(alignment: .center, spacing: 4) {
+                    attachmentButton
+                    messageField
+                    sendButton
+                }.padding(.leading, 4).padding(.trailing, 8)
             }.padding(.vertical, 6)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
         }.padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 8)
@@ -396,7 +419,7 @@ struct ConversationView: View {
     private var messageField: some View {
         ZStack(alignment: .topLeading) {
             if draft.isEmpty {
-                Text("随心输入").foregroundStyle(.tertiary).padding(.vertical, 10)
+                Text("说说你想完成的事…").foregroundStyle(.tertiary).padding(.vertical, 10)
                     .allowsHitTesting(false).accessibilityHidden(true)
             }
             MessageInput(text: $draft, focused: $focused, disabled: running || presentation.stopping || sendingAttachments, onSubmit: send)
@@ -404,14 +427,19 @@ struct ConversationView: View {
     }
     @ViewBuilder private var sendButton: some View {
         if running {
-            Button { if let run = presentation.activeRun { presentation.dispatch(.stop(run: run)) } } label: { Image(systemName: "stop.fill").font(.body.bold()).frame(width: 38, height: 38).background(Color(uiColor: .label), in: Circle()).foregroundStyle(Color(uiColor: .systemBackground)) }
+            Button { if let run = presentation.activeRun { presentation.dispatch(.stop(run: run)) } } label: { Image(systemName: "stop.fill").font(.body.bold()).frame(width: 38, height: 38).background(Color(uiColor: .label), in: Circle()).foregroundStyle(Color(uiColor: .systemBackground)).frame(width: 44, height: 44).contentShape(Rectangle()) }
                 .accessibilityLabel("停止执行").accessibilityIdentifier("stopRun")
         } else if presentation.awaitingTaskConfirmation {
             Button("确认开始") { sendConfirmedTask() }
                 .buttonStyle(.borderedProminent).disabled(!canSend)
                 .accessibilityIdentifier("confirmSiriTask")
         } else {
-            Button { send() } label: { Image(systemName: "arrow.up").font(.body.bold()).frame(width: 38, height: 38).background(.blue, in: Circle()).foregroundStyle(.white) }
+            Button { send() } label: {
+                Image(systemName: "arrow.up").font(.body.bold()).frame(width: 38, height: 38)
+                    .background(canSend ? Color.blue : Color(uiColor: .tertiarySystemFill), in: Circle())
+                    .foregroundStyle(canSend ? Color.white : Color(uiColor: .tertiaryLabel))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }.buttonStyle(.plain)
                 .disabled(!canSend)
                 .accessibilityLabel("发送").accessibilityIdentifier("sendMessage")
         }
@@ -473,7 +501,7 @@ private struct MessageInput: UIViewRepresentable {
         view.textContainer.lineFragmentPadding = 0
         view.returnKeyType = .send
         view.enablesReturnKeyAutomatically = true
-        view.accessibilityLabel = "随心输入"
+        view.accessibilityLabel = "说说你想完成的事"
         view.accessibilityIdentifier = "messageInput"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return view

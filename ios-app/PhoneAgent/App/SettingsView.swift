@@ -12,9 +12,21 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack(spacing: 14) {
+                        Image("BrandMark").resizable().scaledToFit()
+                            .frame(width: 48, height: 48)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("随办").font(.headline)
+                            Text("说出目标，一起把事情办好").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.padding(.vertical, 6)
+                }
                 Section("模型") {
                     NavigationLink { ProvidersView(model: model) } label: {
-                        Text("供应商")
+                        Label("供应商", systemImage: "cpu")
                     }.accessibilityIdentifier("openProviders")
                 }
                 Section("手机操控") {
@@ -24,7 +36,7 @@ struct SettingsView: View {
                     }.disabled(model.hasBusySessions || !control.canChangeRoute)
                         .accessibilityIdentifier("deviceControlMode")
                     NavigationLink { ESP32ControlSettingsView() } label: {
-                        Text("连接与验证")
+                        Label("连接与验证", systemImage: "iphone")
                     }.accessibilityIdentifier("esp32ControlSettings")
                 }
                 Section {
@@ -42,7 +54,7 @@ struct SettingsView: View {
                 }
                 Section("扩展能力") {
                     NavigationLink { SkillsView(model: model, store: model.skills) } label: {
-                        Text("技能")
+                        Label("技能", systemImage: "sparkles")
                     }.accessibilityIdentifier("manageSkills")
                 }
                 Section("本地记录") {
