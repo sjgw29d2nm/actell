@@ -2,7 +2,6 @@ import Foundation
 import BackgroundTasks
 import UIKit
 
-@available(iOS 27.0, *)
 @MainActor final class ContinuedProcessingScheduler: RunBackgroundScheduler {
     var diagnostic: ((String) -> Void)?
     private var leases: [String: ExecutionTransitionLease] = [:]
@@ -52,9 +51,12 @@ import UIKit
         let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: "随办 正在处理任务", subtitle: "等待实际响应；可随时取消")
         request.strategy = .fail
         request.requiredResources = [] // CPU/network only; no GPU entitlement.
-        // iOS 27's asynchronous API reports errors missed by deprecated submit.
-        // No UI/MainActor work runs while waiting for the scheduler's response.
-        try await BGTaskScheduler.shared.submitTaskRequest(request)
+        if #available(iOS 27.0, *) {
+            // No UI/MainActor work runs while awaiting the scheduler's response.
+            try await BGTaskScheduler.shared.submitTaskRequest(request)
+        } else {
+            try BGTaskScheduler.shared.submit(request)
+        }
     }
     func cancel(identifier: String) {
         leases.removeValue(forKey: identifier)?.complete(success: false)

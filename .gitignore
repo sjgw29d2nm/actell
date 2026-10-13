@@ -12,6 +12,7 @@ __pycache__/
 *pair_record*
 *pairing_record*
 .env
+LocalProviderSetup.json
 .DS_Store
 
 firmware-device/managed_components/

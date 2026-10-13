@@ -143,7 +143,7 @@ struct AgentRunServices {
          makeUSBClient: @escaping @MainActor (USBDiagnosticsLog, @escaping @Sendable (USBConnectionStatus) -> Void) -> any USBConnectionSession = { USBCommandClient(diagnostics: $0, onProgress: $1) }) {
         self.providers = providers ?? ProviderStore(defaults: loadPersistentState ? .standard : nil)
         self.writeProviderKey = writeProviderKey; self.containsProviderKey = containsProviderKey
-        self.capture = sharedCapture ?? ScreenCaptureController()
+        self.capture = sharedCapture ?? ScreenCaptureController.make()
         self.persistentRuntime = loadPersistentState; self.runServicesFactory = runServicesFactory
         self.skills = skills ?? SkillStore(inMemory: !loadPersistentState)
         self.attachments = attachments ?? AttachmentStore(directory: loadPersistentState ? nil : FileManager.default.temporaryDirectory.appendingPathComponent("test-assets-\(UUID())"))

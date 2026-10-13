@@ -90,6 +90,19 @@ jobs:
             -disableAutomaticPackageResolution -skipPackageUpdates \
             CODE_SIGNING_ALLOWED=NO build
 
+      - name: Package unsigned device app
+        run: |
+          tar -C .build/DerivedData/Build/Products/Debug-iphoneos \
+            -czf .build/PhoneAgent-unsigned.tar.gz PhoneAgent.app
+
+      - name: Upload unsigned device app
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ios-device-unsigned
+          path: .build/PhoneAgent-unsigned.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Select an iOS 27 iPhone simulator
         id: simulator
         run: |

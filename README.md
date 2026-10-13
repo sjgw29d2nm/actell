@@ -28,7 +28,7 @@ These statements reflect the current source and validation records in the projec
 
 ## Setup and running
 
-The current minimum deployment target is **iOS 27**, and builds use **Xcode 27**. Configure your own valid signing for a physical device; the unsigned build below only produces artifacts and cannot be installed directly. Model-driven tasks require your own compatible provider, model, and credentials. Screenshots and explicitly sent attachments are transmitted to the selected model.
+The current minimum deployment target is **iOS 26.5**, and builds use **Xcode 27**. The CoreDevice routes are available on iOS 26.5; the older ScreenCaptureKit route requires iOS 27. Configure your own valid signing for a physical device; the unsigned build below only produces artifacts and cannot be installed directly. Model-driven tasks require your own compatible provider, model, and credentials. Screenshots and explicitly sent attachments are transmitted to the selected model.
 
 Prerequisites for device control:
 

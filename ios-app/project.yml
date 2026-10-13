@@ -2,7 +2,7 @@ name: PhoneAgent
 options:
   bundleIdPrefix: com.ja1chen
   deploymentTarget:
-    iOS: '27.0'
+    iOS: '26.5'
 settings:
   base:
     GENERATE_INFOPLIST_FILE: YES
@@ -42,6 +42,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         HEADER_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../ncm-dev/PhoneAgentNCM/Sources/CNCMBackend/include']
         OTHER_LDFLAGS: ['$(inherited)', '-lphoneagent_ncm_backend', '-framework', 'Security', '-framework', 'SystemConfiguration']
+        'OTHER_LDFLAGS[sdk=iphoneos*]': ['$(inherited)', '-weak_framework', 'ScreenCaptureKit']
         'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release']
         'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release']
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

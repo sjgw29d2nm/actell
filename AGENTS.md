@@ -1,6 +1,6 @@
 # 阅读与验证入口
 
-当前 App 默认路线是 iOS 27 + VPN 回环开发者服务截图/触控（免 ESP32）；可在设置选择 ESP32 NCM 模式，复用系统配对身份与 CoreDevice 后端。ScreenCaptureKit + PA3 USB Device NCM/HID 和 TLS 实现保留，旧链路暂未提供切换开关。先读 `README.md` 和本次改动涉及的源码；项目待办重评/证据在 `docs/PROJECT-TODOS.md`。
+当前 App 最低 iOS 26.5，使用 Xcode 27 构建；默认通过 VPN 回环开发者服务截图/触控（免 ESP32）。可在设置选择 ESP32 NCM 模式，复用系统配对身份与 CoreDevice 后端。ScreenCaptureKit + PA3 USB Device NCM/HID 和 TLS 实现保留；ScreenCaptureKit 需要 iOS 27，旧链路暂未提供切换开关。先读 `README.md` 和本次改动涉及的源码；项目待办重评/证据在 `docs/PROJECT-TODOS.md`。
 
 默认检索范围：`ios-app/PhoneAgent`、`ios-app/PhoneAgentTests`、`ios-app/PhoneAgentUITests`、`firmware-device/main`、`tests/usb_device`。不要默认递归读取 `.build/`、`archives/`、`ios-app/Vendor/` 或旧 Host `firmware/`、`tests/usb_host_sim/`；当问题涉及相应实现、上游兼容或历史证据时再按需查看。许可证与来源清单保留。
 
