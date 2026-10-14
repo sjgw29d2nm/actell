@@ -9,6 +9,7 @@ import UIKit
     @ObservedObject private var capture = ReplayKitBroadcastCapture.shared
     @State private var control = PairingFlow.shared
     @State private var showingTest = false
+    @State private var showingMouseTest = false
     @State private var error: String?
     var body: some View {
         Form {
@@ -42,11 +43,17 @@ import UIKit
             Section {
                 Text("打开系统设置 → 辅助功能 → 触控 → 辅助触控，开启辅助触控，在「设备 → 蓝牙设备」中配对随办硬件。")
                 Text("将鼠标主按钮设为单击。测试时关闭停留控制和拖移锁定，并保持跟踪灵敏度不变。")
-                Button("开始蓝牙输入验收") {
+                Button("一键检查鼠标") {
                     control.cancel()
-                    showingTest = true
+                    showingMouseTest = true
                 }.disabled(!bluetooth.connected || !hid.supported || !control.canChangeRoute)
                     .accessibilityIdentifier("openBluetoothHIDVerification")
+                DisclosureGroup("键盘与手动调试") {
+                    Button("打开输入测试页") {
+                        control.cancel()
+                        showingTest = true
+                    }.disabled(!bluetooth.connected || !hid.supported || !control.canChangeRoute)
+                }
             } header: { Text("系统键鼠与实际输入") } footer: {
                 Text("开始验收会停止当前手机操控连接。指令回执只证明报告发送，实际点击和输入要以测试页结果为准。")
             }
@@ -84,6 +91,7 @@ import UIKit
         .navigationTitle("蓝牙键鼠")
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingTest) { BluetoothHIDVerificationView() }
+        .fullScreenCover(isPresented: $showingMouseTest) { BluetoothHIDMouseVerificationView(autoStart: true) }
         .onDisappear { bluetooth.stopScan() }
     }
 }
@@ -113,6 +121,7 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
     @State private var text = ""
     @State private var result = "先完成系统蓝牙键鼠配对。测试时不要用手触碰中央目标。"
     @State private var stopping = false
+    @State private var showingMouseTest = false
     @FocusState private var textFocused: Bool
     private var canSend: Bool { operation == nil && !stopping && hid.supported }
     var body: some View {
@@ -128,6 +137,13 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                     }.buttonStyle(.borderedProminent).accessibilityIdentifier("bluetoothHIDClickTarget")
                     Text(result).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("bluetoothHIDTestResult")
+                    Button("一键测试鼠标") {
+                        stop()
+                        showingMouseTest = true
+                    }.buttonStyle(.borderedProminent).disabled(!canSend)
+                    Text("自动移动、点击两次并释放，无需手动对准目标。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    DisclosureGroup("手动检查鼠标") {
                     HStack {
                         direction("左", dx: -20, dy: 0)
                         direction("上", dx: 0, dy: -20)
@@ -149,6 +165,7 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                         Button("向上滚动") { scroll(1) }
                         Button("向下滚动") { scroll(-1) }
                     }.disabled(!canSend)
+                    }
                     TextField("键盘测试结果", text: $text).textFieldStyle(.roundedBorder)
                         .focused($textFocused).autocorrectionDisabled().textInputAutocapitalization(.never)
                         .accessibilityIdentifier("bluetoothHIDKeyboardField")
@@ -199,6 +216,9 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
             }
             .onChange(of: scenePhase) { _, phase in if phase != .active { stop() } }
             .onDisappear(perform: stop)
+            .fullScreenCover(isPresented: $showingMouseTest) {
+                BluetoothHIDMouseVerificationView(autoStart: false)
+            }
         }
     }
     private func direction(_ name: String, dx: Int, dy: Int) -> some View {
@@ -248,6 +268,187 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
             else { await hid.stopAll() }
             guard generation == token else { return }
             stopping = false; result = hid.status
+        }
+    }
+}
+
+/// Only actual tap events may update the samples. Relative reports are never
+/// converted into screen coordinates, and a missed/unknown click is not retried.
+@MainActor struct BluetoothHIDMouseVerificationView: View {
+    let autoStart: Bool
+    @ObservedObject private var bluetooth = BluetoothBoardFlow.shared
+    @ObservedObject private var hid = BluetoothHIDTransport.shared
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var operation: Task<Void, Never>?
+    @State private var session: BluetoothHIDSession?
+    @State private var generation = UUID()
+    @State private var samples: [CGPoint] = []
+    @State private var acceptingClick = false
+    @State private var unexpectedClicks = 0
+    @State private var running = false
+    @State private var stopping = false
+    @State private var started = false
+    @State private var result = "按开始后，请不要用手触碰屏幕。"
+    @State private var records: [String] = []
+
+    var body: some View {
+        ZStack {
+            Color.blue.opacity(0.12)
+                .contentShape(Rectangle())
+                .onTapGesture(coordinateSpace: .local) { point in
+                    guard running else { return }
+                    if acceptingClick {
+                        samples.append(point)
+                        record(String(format: "ui.tap count=%d x=%.1f y=%.1f", samples.count, point.x, point.y))
+                    } else {
+                        unexpectedClicks += 1
+                        record("ui.unexpected_tap count=\(unexpectedClicks)")
+                    }
+                }
+            VStack(spacing: 18) {
+                Text("鼠标自动测试").font(.title2.bold())
+                Text("只操作此测试页").font(.footnote).foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "cursorarrow.motionlines").font(.system(size: 38)).foregroundStyle(.blue)
+                Text("实际收到点击：\(samples.count) / 2").font(.title3).monospacedDigit()
+                Text(result).font(.body).multilineTextAlignment(.center)
+                Text("自动移动、真实点击、自动释放。\n测试期间请勿触碰屏幕。")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Spacer()
+            }.padding(28).allowsHitTesting(false)
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button("关闭") { stop(); dismiss() }.disabled(running || stopping)
+                Spacer()
+                if running || stopping {
+                    Button(stopping ? "正在释放" : "停止测试", role: .destructive, action: stop)
+                        .disabled(stopping)
+                } else {
+                    Button("开始自动测试", action: start).buttonStyle(.borderedProminent)
+                }
+            }.padding().background(.regularMaterial)
+        }
+        .task {
+            if autoStart && !started { start() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { stop() }
+        }
+        .onDisappear(perform: stop)
+    }
+
+    private func record(_ value: String) {
+        records.append(Date().ISO8601Format() + " " + value)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
+            let url = URL.documentsDirectory.appending(path: "hardware-hid-mouse-verification.log")
+            try? Data((records.joined(separator: "\n") + "\n").utf8)
+                .write(to: url, options: [.atomic, .completeFileProtection])
+        }
+        #endif
+    }
+    private func requireActive(_ token: UUID) throws {
+        try Task.checkCancellation()
+        guard generation == token, scenePhase == .active,
+              UIApplication.shared.applicationState == .active,
+              UIApplication.shared.isProtectedDataAvailable,
+              !PhoneAgentRuntime.shared.model.hasBusySessions,
+              !PairingFlow.shared.agentReserved else { throw AppError.stopped }
+    }
+    private func start() {
+        guard operation == nil, !running, !stopping, !PhoneAgentRuntime.shared.model.hasBusySessions,
+              !PairingFlow.shared.agentReserved else { return }
+        started = true
+        let token = UUID(); generation = token
+        samples = []; unexpectedClicks = 0; records = []; acceptingClick = false
+        running = true; result = "正在准备蓝牙输入"; record("test.begin")
+        PairingFlow.shared.cancel()
+        operation = Task {
+            var owned: BluetoothHIDSession?
+            do {
+                if !bluetooth.connected && !bluetooth.connecting { bluetooth.reconnectRemembered() }
+                let deadline = ContinuousClock.now.advanced(by: .seconds(25))
+                while (!bluetooth.connected || !hid.supported || hid.busy || scenePhase != .active) && ContinuousClock.now < deadline {
+                    try Task.checkCancellation()
+                    guard generation == token else { throw AppError.stopped }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try requireActive(token)
+                guard bluetooth.connected, hid.supported else { throw AppError.unavailable("请连接随办硬件并完成系统键鼠配对") }
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
+                    let arguments = ProcessInfo.processInfo.arguments
+                    guard let index = arguments.firstIndex(of: "--hardware-board-id"), index + 1 < arguments.count,
+                          bluetooth.boardID == arguments[index + 1] else { throw AppError.unavailable("测试板子身份不匹配") }
+                }
+                #endif
+                record("connect.verified")
+                let lease = try await hid.openInputSession(); owned = lease
+                try requireActive(token); session = lease; record("input.begin")
+                for sign in [-1, 1] {
+                    result = "正在自动移动并点击第 \(samples.count + 1) 个位置"
+                    record("motion.corner direction=\(sign)")
+                    // Boundary motion is a test gesture, not a coordinate calibration.
+                    for _ in 0..<8 {
+                        try requireActive(token)
+                        try await hid.mouse(lease, dx: sign * 127, dy: sign * 127)
+                        try await Task.sleep(for: .milliseconds(50))
+                    }
+                    for _ in 0..<48 {
+                        try requireActive(token)
+                        try await hid.mouse(lease, dx: -sign, dy: -sign * 2)
+                        try await Task.sleep(for: .milliseconds(50))
+                    }
+                    try await Task.sleep(for: .milliseconds(250)); try requireActive(token)
+                    let baseline = samples.count
+                    acceptingClick = true; record("click.begin expected=\(baseline + 1)")
+                    try await hid.mouse(lease, dx: 0, dy: 0, buttons: 1)
+                    try await Task.sleep(for: .milliseconds(60)); try requireActive(token)
+                    try await hid.mouse(lease, dx: 0, dy: 0)
+                    try await Task.sleep(for: .milliseconds(600)); try requireActive(token)
+                    acceptingClick = false
+                    guard samples.count == baseline + 1, unexpectedClicks == 0 else {
+                        throw AppError.unavailable("真实点击未确认或次数异常，本轮已停止；没有自动重试")
+                    }
+                    record("click.confirmed count=\(samples.count)")
+                }
+                guard samples.count == 2 else { throw AppError.unavailable("实际点击次数不匹配") }
+                let distance = hypot(samples[1].x - samples[0].x, samples[1].y - samples[0].y)
+                record(String(format: "motion.actual_distance=%.1f", distance))
+                guard distance >= 20 else { throw AppError.unavailable("实际点击位置未明显移动，请检查系统鼠标配置") }
+                await hid.stopInputs(lease); owned = nil
+                try requireActive(token); session = nil
+                guard !hid.busy, !hid.inputActive, hid.status == "蓝牙键鼠已释放" else {
+                    throw AppError.unavailable("停止回执未确认，请检查硬件")
+                }
+                record("input.neutral_confirmed")
+                try await Task.sleep(for: .milliseconds(500)); try requireActive(token)
+                guard samples.count == 2, unexpectedClicks == 0 else { throw AppError.unavailable("释放后出现额外点击") }
+                result = "通过：实际移动、两次点击和停止回执均已确认。"
+                record("PASS actual_motion actual_clicks=2 stop_neutral no_extra_tap")
+            } catch {
+                acceptingClick = false
+                if let owned { await hid.stopInputs(owned) }
+                guard generation == token else { return }
+                session = nil
+                result = (error as? AppError)?.localizedDescription ?? "测试已停止"
+                record("FAIL \(result)")
+            }
+            guard generation == token else { return }
+            acceptingClick = false; running = false; operation = nil
+        }
+    }
+    private func stop() {
+        guard !stopping, running || session != nil else { return }
+        generation = UUID(); operation?.cancel(); operation = nil
+        acceptingClick = false; running = false; stopping = true
+        let old = session; session = nil; result = "正在停止并释放"
+        record("test.cancelled")
+        Task {
+            if let old { await hid.stopInputs(old) } else { await hid.stopAll() }
+            stopping = false; result = hid.status; record("test.cancelled_release \(hid.status)")
         }
     }
 }

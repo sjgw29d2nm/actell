@@ -634,3 +634,17 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 检查同时发现通用门覆盖 NR1/NL1 与 BLE，但 PA3 旧 USB HID 路径尚未接入。当前 NCM 固件 USB HID count=0，未触发真实 PA3 输入；为保证保留 USB 能力与 BLE 互斥，正在补 PA3 自身 owner 门，释放须等待 neutral，未确认释放不交给另一输入方。清理固件最终候选与新 App 尚待此检查闭环、构建、刷写和安装。
 - PA3 互斥补丁已收口：真实开始输入或启动 neutral 前取得同一门；无 owner 的 STOP／关闭不发 USB 报告，输入／释放等待期间持门，确认 neutral 后释放，不能用 USB suspend/offline 提前交给蓝牙。私有 actual-main/BH1/实际门与 motion 联合 ASan/UBSan 检查 103 项通过，原 BH1 571 项与 PA3 25 项仍通过，原用例未删改；最终增量 SDK 与设备交付待完成。
 - 手动停止 USB 后，本次进程的自动恢复会被抑制，直至用户或明确设备工具重新连接；硬件页不再额外自动恢复。首次系统配对入口补 HID 占用检查，防止从辅助触控返回后又自动验证 USB，反复禁用蓝牙输入按钮。未新增用户配置或修改保存身份。
+
+### 2026-10-14 · bcabe7f 交付：USB／BLE、无硬件 Wi-Fi
+
+- 清理与互斥补丁已提交并推送 `bcabe7fc2fe92e469cacc121a44dfdc8ade17dc5`。[iPhoneOS SDK 构建 38502800238](https://github.com/sjgw29d2nm/actell/actions/runs/38502800238) 成功，原文 `2026-10-14T02:50:03.1509450Z ** BUILD SUCCEEDED **`，`build_only` 没有运行原生 XCTest／UI 测试。产物 `11866438727`、归档 SHA256 `9701dc32c61a3f69df1cc80bf9c5c5e1278e51dfeb42cb4213268ae16f4370b9`。
+- 最终固件 `642704` bytes，App SHA256 `ecd2153e37ba1db13ff760c29df4b3432979a855b60bcbbaf5a77de160812e6c`，原 1MiB 分区剩 `405872` bytes。复制固定候选，沿用已验证 bootloader／原分区，仅写 App；区域校验和有界 UART 启动验收通过。原文 `USB ND1 / NR1 / NL1 and BLE input share one owner`、`advertising Suiban-v1`、`connection result=0`、`encryption result=0`，没有硬件 Wi-Fi／AP／STA 启动。升级不覆盖 NVS，编程口打开可能复位已明确计入此次升级。
+- App 1.9 本机严格签名／USB 安装、来源查询、启动通过，原文 `Installation succeed.`。最终签名不含 HotspotConfiguration／wifi-info，配网与定位入口移除。智谱完整配置和 Keychain 引用、随办 647 bytes 配对身份与升级前一致；提供的描述文件不足以签广播扩展，两扩展仍移除，跨 App 采集没有假装可用。
+- 1.9 真机探针原文：`1.465 connect.verified_board_id_match`、`1.568 ping.verified`、`1.571 hid.firmware.capability supported=true`、`1.574 probe.end bluetooth_connected=true`。不再读取配网特征或切换手机网络。用户确认新版英文和中文输入测试没有问题；保留的最后按键回执 `KEY phase=reports_sent code=ok`，退出页面时 `STOP phase=neutral_sent code=ok`。日志环限 240 条，较早的英文序列已被闲时 PING 覆盖，不把此日志宣称为全部英文按键原始链；截屏时已离开随办，不计作键盘结果截图。
+- 鼠标移动、目标实际计数／单击与停止释放正在等待自身测试页结果；模型绝对点击、拖动、完整 BLE AI 主流程以及匹配签名的跨 App 采集仍待后续验收。
+
+### 2026-10-14 · 自动鼠标验收
+
+- 用户要求复杂测试由开发侧自行完成。蓝牙页改为「一键检查鼠标」，原键盘与手动方向／点击调试收起；全屏专用画布自动发送两组有限相对移动和两次单击，实际 UI tap 事件独立记录次数及坐标，不把报告位移当成屏幕像素，不在未知或漏点后自动重试。
+- DEBUG 显式启动参数直接显示该根页面，核对已记住硬件及指定板子身份；Mac 可启动、读取自身验收日志和截图，无需用户逐个点击方向按钮。结束、取消、后台或锁屏都停止释放，已有 Agent 任务运行时不测试。真实点击位置应明显不同且恰好两次，STOP 应确认 neutral，之后观察无额外点击。
+- 本次只改 App 验收入口，固件沿用已刷写并验证的 bcabe7f；源码语法检查通过，原生 SDK 构建、安装和自动鼠标真机结果待补。英文／中文实际输入沿用用户对 1.9 的确认，不伪造新结果。

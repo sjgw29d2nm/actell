@@ -12,7 +12,8 @@ import Darwin
     private var hardwareDiagnosticMode: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe") ||
-            ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification")
+            ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") ||
+            ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification")
         #else
         return false
         #endif
@@ -28,11 +29,11 @@ import Darwin
     }
     var body: some Scene {
         WindowGroup {
-            ContentView(model: model, statusPiP: statusPiP, commands: PhoneAgentRuntime.shared.commands,
-                        scheduledTasks: scheduledTasks)
+            rootContent
                 .overlay {
                     #if DEBUG
-                    if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
+                    if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") { EmptyView() }
+                    else if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
                     else if ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") {
                         NavigationStack { BluetoothHIDSettingsView() }
                     }
@@ -133,6 +134,19 @@ import Darwin
                     PhoneAgentRuntime.shared.commands.resumePendingExecutions()
                 }
         }
+    }
+    @ViewBuilder private var rootContent: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
+            BluetoothHIDMouseVerificationView(autoStart: true)
+        } else {
+            ContentView(model: model, statusPiP: statusPiP, commands: PhoneAgentRuntime.shared.commands,
+                        scheduledTasks: scheduledTasks)
+        }
+        #else
+        ContentView(model: model, statusPiP: statusPiP, commands: PhoneAgentRuntime.shared.commands,
+                    scheduledTasks: scheduledTasks)
+        #endif
     }
     private var testColorScheme: ColorScheme? {
         #if DEBUG
