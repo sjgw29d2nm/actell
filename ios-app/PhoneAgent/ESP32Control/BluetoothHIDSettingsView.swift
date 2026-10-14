@@ -292,12 +292,14 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
     @State private var started = false
     @State private var foregroundActive = false
     @State private var showingConnection = false
+    @State private var canvasFrame = CGRect.zero
     @State private var result = "按开始后，请不要用手触碰屏幕。"
     @State private var records: [String] = []
 
     var body: some View {
         ZStack {
             Color.blue.opacity(0.12)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { canvasFrame = $0 }
                 .contentShape(Rectangle())
                 .onTapGesture(coordinateSpace: .local) { point in
                     guard running else { return }
@@ -307,6 +309,12 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                     } else {
                         unexpectedClicks += 1
                         record(String(format: "ui.unexpected_tap count=%d x=%.1f y=%.1f", unexpectedClicks, point.x, point.y))
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    ForEach(samples.indices, id: \.self) { index in
+                        Circle().fill(.green).frame(width: 14, height: 14)
+                            .position(samples[index]).allowsHitTesting(false)
                     }
                 }
             VStack(spacing: 18) {
@@ -392,7 +400,7 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
             do {
                 if !bluetooth.connected && !bluetooth.connecting { bluetooth.reconnectRemembered() }
                 let deadline = ContinuousClock.now.advanced(by: .seconds(25))
-                while (!bluetooth.connected || !hid.supported || hid.busy || !foregroundActive || UIApplication.shared.applicationState != .active) && ContinuousClock.now < deadline {
+                while (!bluetooth.connected || !hid.supported || hid.busy || canvasFrame.isEmpty || !foregroundActive || UIApplication.shared.applicationState != .active) && ContinuousClock.now < deadline {
                     try Task.checkCancellation()
                     guard generation == token else { throw AppError.stopped }
                     try await Task.sleep(for: .milliseconds(100))
@@ -400,6 +408,8 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                 recordReadiness()
                 try requireActive(token)
                 guard bluetooth.connected, hid.supported else { throw AppError.unavailable("请连接随办硬件并完成系统键鼠配对") }
+                guard !canvasFrame.isEmpty else { throw AppError.unavailable("测试画布尚未布局，本轮停止") }
+                record(String(format: "canvas.global x=%.1f y=%.1f width=%.1f height=%.1f", canvasFrame.minX, canvasFrame.minY, canvasFrame.width, canvasFrame.height))
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
                     let arguments = ProcessInfo.processInfo.arguments
@@ -410,22 +420,33 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                 record("connect.verified")
                 let lease = try await hid.openInputSession(); owned = lease
                 try requireActive(token); session = lease; record("input.begin")
-                for sign in [-1, 1] {
+                for index in 0..<2 {
                     result = "正在自动移动并点击第 \(samples.count + 1) 个位置"
-                    record("motion.corner direction=\(sign)")
-                    // Boundary motion is a test gesture, not a coordinate calibration.
-                    for _ in 0..<8 {
-                        try requireActive(token)
-                        try await hid.mouse(lease, dx: sign * 127, dy: sign * 127)
-                        try await Task.sleep(for: .milliseconds(50))
+                    if index == 0 {
+                        // Boundary motion is a test gesture, not a coordinate calibration.
+                        record("motion.corner dx=-127 dy=-127 reports=8")
+                        for _ in 0..<8 {
+                            try requireActive(token)
+                            try await hid.mouse(lease, dx: -127, dy: -127)
+                            try await Task.sleep(for: .milliseconds(50))
+                        }
                     }
-                    for _ in 0..<48 {
+                    let dx = index == 0 ? 4 : (samples[0].x < canvasFrame.width / 2 ? 4 : -4)
+                    let dy = index == 0 ? 8 : (samples[0].y < canvasFrame.height / 2 ? 4 : -4)
+                    record("motion.inward dx=\(dx) dy=\(dy) reports=24")
+                    for _ in 0..<24 {
                         try requireActive(token)
-                        try await hid.mouse(lease, dx: -sign, dy: -sign * 2)
+                        try await hid.mouse(lease, dx: dx, dy: dy)
                         try await Task.sleep(for: .milliseconds(50))
                     }
                     try await Task.sleep(for: .milliseconds(250)); try requireActive(token)
                     let baseline = samples.count
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
+                        record("click.prepare expected=\(baseline + 1)")
+                        try await Task.sleep(for: .seconds(3)); try requireActive(token)
+                    }
+                    #endif
                     acceptingClick = true; record("click.begin expected=\(baseline + 1)")
                     try await hid.mouse(lease, dx: 0, dy: 0, buttons: 1)
                     try await Task.sleep(for: .milliseconds(60)); try requireActive(token)
