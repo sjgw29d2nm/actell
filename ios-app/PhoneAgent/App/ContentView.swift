@@ -5,12 +5,14 @@ struct ContentView: View {
     @ObservedObject var statusPiP: StatusPiPController
     @ObservedObject private var sessions: ConversationStore
     @ObservedObject private var scheduledTasks: ScheduledTaskController
+    @ObservedObject private var bluetooth = BluetoothBoardFlow.shared
+    @State private var control = PairingFlow.shared
     let commands: SessionCommandService
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [UUID] = []
     @State private var consumedActivityNavigationID: UUID?
     @State private var search = ""
-    private enum Panel: String, Identifiable { case settings, scheduled; var id: String { rawValue } }
+    private enum Panel: String, Identifiable { case settings, scheduled, hardware; var id: String { rawValue } }
     @State private var panel: Panel?
     init(model: AgentViewModel, statusPiP: StatusPiPController, commands: SessionCommandService,
          scheduledTasks: ScheduledTaskController) {
@@ -48,6 +50,11 @@ struct ContentView: View {
                         .searchable(text: $search, prompt: "搜索会话")
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                hardwareConnectionEntry
+                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
+                    .background(.background)
+            }
             .navigationTitle("会话")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -65,6 +72,15 @@ struct ContentView: View {
             .sheet(item: $panel) { item in
                 switch item {
                 case .settings: SettingsView(model: model)
+                case .hardware:
+                    NavigationStack {
+                        HardwareWirelessSettingsView()
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("完成") { panel = nil }
+                                }
+                            }
+                    }
                 case .scheduled:
                     NavigationStack {
                         ScheduledTasksView(controller: scheduledTasks, openConversation: { id in
@@ -111,6 +127,44 @@ struct ContentView: View {
             if phase == .active { routeActivityNavigation(); routePreparedTask() }
         }
         .onChange(of: panel) { _, value in if value == nil { routePreparedTask() } }
+    }
+    private var hardwareConnectionEntry: some View {
+        Button { panel = .hardware } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "cable.connector")
+                    .font(.title3).foregroundStyle(.blue)
+                    .frame(width: 42, height: 42)
+                    .background(.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("连接随办硬件").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                    Text(hardwareConnectionStatus)
+                        .font(.caption)
+                        .foregroundStyle(control.route == .ncmDeveloper && control.ready || bluetooth.connected ? Color.green : Color.secondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("homeHardwareConnection")
+    }
+    private var hardwareConnectionStatus: String {
+        if control.route == .ncmDeveloper && control.ready {
+            let usb = control.running || control.agentReserved ? "USB 操控中" : "USB 操控已连接"
+            return bluetooth.connected ? usb + " · 蓝牙已连接" : usb
+        }
+        if control.route == .ncmDeveloper && control.running {
+            return control.pairingActive ? "USB 操控正在授权" : "USB 操控连接中"
+        }
+        if bluetooth.connected { return "蓝牙已连接 · 查看输入检查" }
+        if bluetooth.connecting { return "蓝牙连接中" }
+        if bluetooth.scanning { return "正在查找蓝牙硬件" }
+        return "USB 有线或蓝牙输入 · 点击连接"
     }
     private var emptyState: some View {
         GeometryReader { geometry in

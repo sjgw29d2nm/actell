@@ -42,6 +42,7 @@ import UIKit
             }
             Section {
                 Text("打开系统设置 → 辅助功能 → 触控 → 辅助触控，开启辅助触控，在「设备 → 蓝牙设备」中配对随办硬件。")
+                Text("同时开启「显示屏幕键盘」，保留手动打字。App 不会修改你的系统输入法。")
                 Text("将鼠标主按钮设为单击。测试时关闭停留控制和拖移锁定，并保持跟踪灵敏度不变。")
                 Button("一键检查鼠标") {
                     control.cancel()
@@ -289,6 +290,8 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
     @State private var running = false
     @State private var stopping = false
     @State private var started = false
+    @State private var foregroundActive = false
+    @State private var showingConnection = false
     @State private var result = "按开始后，请不要用手触碰屏幕。"
     @State private var records: [String] = []
 
@@ -303,12 +306,15 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                         record(String(format: "ui.tap count=%d x=%.1f y=%.1f", samples.count, point.x, point.y))
                     } else {
                         unexpectedClicks += 1
-                        record("ui.unexpected_tap count=\(unexpectedClicks)")
+                        record(String(format: "ui.unexpected_tap count=%d x=%.1f y=%.1f", unexpectedClicks, point.x, point.y))
                     }
                 }
             VStack(spacing: 18) {
                 Text("鼠标自动测试").font(.title2.bold())
                 Text("只操作此测试页").font(.footnote).foregroundStyle(.secondary)
+                Label(bluetooth.connected ? "随办硬件已连接" : bluetooth.connecting ? "正在连接随办硬件" : "随办硬件未连接",
+                      systemImage: bluetooth.connected ? "checkmark.circle" : "antenna.radiowaves.left.and.right")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Spacer()
                 Image(systemName: "cursorarrow.motionlines").font(.system(size: 38)).foregroundStyle(.blue)
                 Text("实际收到点击：\(samples.count) / 2").font(.title3).monospacedDigit()
@@ -326,16 +332,22 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                     Button(stopping ? "正在释放" : "停止测试", role: .destructive, action: stop)
                         .disabled(stopping)
                 } else {
-                    Button("开始自动测试", action: start).buttonStyle(.borderedProminent)
+                    if !bluetooth.connected {
+                        Button("连接随办硬件") { showingConnection = true }.buttonStyle(.borderedProminent)
+                    } else {
+                        Button("开始自动测试", action: start).buttonStyle(.borderedProminent)
+                    }
                 }
             }.padding().background(.regularMaterial)
         }
-        .task {
-            if autoStart && !started { start() }
-        }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            // An async task captures its View's Environment values. Keep this
+            // foreground gate in State so the task reads subsequent transitions.
+            foregroundActive = phase == .active
             if phase != .active { stop() }
+            else if autoStart && !started { start() }
         }
+        .sheet(isPresented: $showingConnection) { NavigationStack { BluetoothHIDSettingsView() } }
         .onDisappear(perform: stop)
     }
 
@@ -351,11 +363,20 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
     }
     private func requireActive(_ token: UUID) throws {
         try Task.checkCancellation()
-        guard generation == token, scenePhase == .active,
-              UIApplication.shared.applicationState == .active,
-              UIApplication.shared.isProtectedDataAvailable,
-              !PhoneAgentRuntime.shared.model.hasBusySessions,
-              !PairingFlow.shared.agentReserved else { throw AppError.stopped }
+        guard generation == token else { throw AppError.stopped }
+        guard foregroundActive, !showingConnection, UIApplication.shared.applicationState == .active,
+              UIApplication.shared.isProtectedDataAvailable else {
+            throw AppError.unavailable("手机未在测试页前台或已锁定，本轮停止")
+        }
+        guard !PhoneAgentRuntime.shared.model.hasBusySessions, !PairingFlow.shared.agentReserved else {
+            throw AppError.unavailable("已有任务占用手机，本轮停止")
+        }
+        guard unexpectedClicks == 0 else {
+            throw AppError.unavailable("测试页收到非测试点击，本轮停止；请检查停留控制或屏幕触碰")
+        }
+    }
+    private func recordReadiness() {
+        record("readiness env_phase=\(scenePhase) foreground=\(foregroundActive) app_state=\(UIApplication.shared.applicationState.rawValue) protected=\(UIApplication.shared.isProtectedDataAvailable) model_busy=\(PhoneAgentRuntime.shared.model.hasBusySessions) reserved=\(PairingFlow.shared.agentReserved) connected=\(bluetooth.connected) supported=\(hid.supported) hid_busy=\(hid.busy)")
     }
     private func start() {
         guard operation == nil, !running, !stopping, !PhoneAgentRuntime.shared.model.hasBusySessions,
@@ -364,17 +385,19 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
         let token = UUID(); generation = token
         samples = []; unexpectedClicks = 0; records = []; acceptingClick = false
         running = true; result = "正在准备蓝牙输入"; record("test.begin")
+        recordReadiness()
         PairingFlow.shared.cancel()
         operation = Task {
             var owned: BluetoothHIDSession?
             do {
                 if !bluetooth.connected && !bluetooth.connecting { bluetooth.reconnectRemembered() }
                 let deadline = ContinuousClock.now.advanced(by: .seconds(25))
-                while (!bluetooth.connected || !hid.supported || hid.busy || scenePhase != .active) && ContinuousClock.now < deadline {
+                while (!bluetooth.connected || !hid.supported || hid.busy || !foregroundActive || UIApplication.shared.applicationState != .active) && ContinuousClock.now < deadline {
                     try Task.checkCancellation()
                     guard generation == token else { throw AppError.stopped }
                     try await Task.sleep(for: .milliseconds(100))
                 }
+                recordReadiness()
                 try requireActive(token)
                 guard bluetooth.connected, hid.supported else { throw AppError.unavailable("请连接随办硬件并完成系统键鼠配对") }
                 #if DEBUG
@@ -433,6 +456,7 @@ private struct HIDScreenshotBroadcastPicker: UIViewRepresentable {
                 if let owned { await hid.stopInputs(owned) }
                 guard generation == token else { return }
                 session = nil
+                recordReadiness()
                 result = (error as? AppError)?.localizedDescription ?? "测试已停止"
                 record("FAIL \(result)")
             }
