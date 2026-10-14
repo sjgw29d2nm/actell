@@ -2,6 +2,9 @@ import Foundation
 #if DEBUG
 import UIKit
 #endif
+#if DEBUG
+import UIKit
+#endif
 
 /// There is one app process, one conversation store, and independently lifecycle-managed conversation runners.
 @MainActor final class PhoneAgentRuntime {
