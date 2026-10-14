@@ -127,6 +127,7 @@ private final class NCMRunFence: @unchecked Sendable {
     private var imageID: String?
     private var approvedImageID: String?
     private var systemAuthorizationID: String?
+    private var failedConnection: (session: UUID, message: String)?
     private let connectionTimeout: Duration
     init(flow: any NCMControlConnection = PairingFlow.shared, connectionTimeout: Duration = .seconds(20)) throws {
         self.flow = flow; self.connectionTimeout = connectionTimeout
@@ -140,14 +141,27 @@ private final class NCMRunFence: @unchecked Sendable {
     private func prepareConnection() async throws {
         let deadline = ContinuousClock.now.advanced(by: connectionTimeout)
         let stopID = flow.connectionStopID
-        var nextAttempt = ContinuousClock.now
+        try Task.checkCancellation(); try fence.check()
+        if !flow.ready, let failedConnection, failedConnection.session == flow.controlSessionID {
+            throw AppError.deviceConnectionFailed(failedConnection.message)
+        }
+        failedConnection = nil
+        var requested = false
+        var awaitedPairing = false
         while !flow.ready {
             try Task.checkCancellation(); try fence.check()
             guard stopID == flow.connectionStopID else { throw AppError.unavailable("手机操控连接等待已停止") }
-            if ContinuousClock.now >= nextAttempt {
+            if requested, !flow.running, !flow.agentReserved, let failure = flow.connectionFailure {
+                failedConnection = (flow.controlSessionID, failure)
+                throw AppError.deviceConnectionFailed(failure)
+            }
+            // Start once, or after an existing pairing operation completes.
+            // A completed failed verification must never start another job.
+            if !requested || (awaitedPairing && !flow.running && !flow.agentReserved) {
                 do { try flow.connectIfNeeded() }
                 catch NCMControlError.unavailable(let message) { throw AppError.unavailable(message) }
-                nextAttempt = ContinuousClock.now.advanced(by: .seconds(1))
+                requested = true
+                awaitedPairing = flow.running || flow.agentReserved
             }
             if flow.ready { break }
             guard ContinuousClock.now < deadline else {

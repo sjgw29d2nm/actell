@@ -764,6 +764,7 @@ struct AgentRunServices {
                 }
                 events.continuation.finish(); await eventTask.value
                 let summary = await action.finishSummary
+                let terminalFailure = await action.terminalDeviceFailureMessage
                 guard let self, self.generation == token else { await action.stop(); return }
                 let messages = self.sessions.conversation(conversationID)?.messages.filter { $0.runID == identity.runID } ?? []
                 let failure = messages.last(where: { $0.tool?.state == .failed })?.tool?.result
@@ -772,7 +773,8 @@ struct AgentRunServices {
                 // Completed describes the conversation, not proof of HID/UI success.
                 let reason = summary != nil ? "finishTool" : (!finalText.isEmpty ? "finalText" : (failure != nil ? "toolFailure" : "noFinalText"))
                 self.usbDiagnostics.record("run.ended reason=\(reason) finishRequired=false")
-                if let summary { await self.closeRun(.completed, result: summary, bridge: selectedBridge, generation: token) }
+                if let terminalFailure { await self.closeRun(.blocked, result: terminalFailure, bridge: selectedBridge, generation: token) }
+                else if let summary { await self.closeRun(.completed, result: summary, bridge: selectedBridge, generation: token) }
                 else if !finalText.isEmpty { await self.closeRun(.completed, result: finalText, bridge: selectedBridge, generation: token) }
                 else if let failure { await self.closeRun(.blocked, result: failure, publishNotice: false, bridge: selectedBridge, generation: token) }
                 else {

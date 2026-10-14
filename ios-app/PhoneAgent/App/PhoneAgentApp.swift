@@ -9,11 +9,22 @@ import Darwin
     @AppStorage(BackgroundPlaybackMode.defaultsKey) private var backgroundMode = BackgroundPlaybackMode.defaultMode.rawValue
     @AppStorage(BackgroundPlaybackMode.residentDefaultsKey) private var backgroundResident = false
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    @State private var notesTaskStatus = "正在准备备忘录任务验收"
+    #endif
+    private var liveTaskDiagnosticMode: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--live-task-verification")
+        #else
+        false
+        #endif
+    }
     private var hardwareDiagnosticMode: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe") ||
             ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") ||
-            ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification")
+            ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") ||
+            ProcessInfo.processInfo.arguments.contains("--hardware-notes-task-verification")
         #else
         return false
         #endif
@@ -32,7 +43,8 @@ import Darwin
             rootContent
                 .overlay {
                     #if DEBUG
-                    if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") { EmptyView() }
+                    if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") ||
+                        ProcessInfo.processInfo.arguments.contains("--hardware-notes-task-verification") { EmptyView() }
                     else if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
                     else if ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") {
                         NavigationStack { BluetoothHIDSettingsView() }
@@ -54,7 +66,7 @@ import Darwin
                 }
                 .task {
                     let streamProbe = ProcessInfo.processInfo.arguments.contains("--task-pip-probe") && ProcessInfo.processInfo.arguments.contains("--background-stream-probe")
-                    if !streamProbe && !hardwareDiagnosticMode { PairingFlow.shared.restoreConnection() }
+                    if !streamProbe && !hardwareDiagnosticMode && !liveTaskDiagnosticMode { PairingFlow.shared.restoreConnection() }
                     statusPiP.setBackgroundMode(BackgroundPlaybackMode(rawValue: backgroundMode) ?? .defaultMode)
                     statusPiP.setBackgroundResident(backgroundResident || scheduledTasks.isArmed)
                     model.liveActivities.setBackgroundResident(backgroundResident || scheduledTasks.isArmed)
@@ -62,6 +74,11 @@ import Darwin
                     #if DEBUG
                     if hardwareDiagnosticMode {
                         await BluetoothBoardFlow.shared.runDiagnosticProbeIfRequested()
+                        if ProcessInfo.processInfo.arguments.contains("--hardware-notes-task-verification") {
+                            await BluetoothNotesTaskVerification.run { notesTaskStatus = $0 }
+                        }
+                    } else if ProcessInfo.processInfo.arguments.contains("--live-task-verification") {
+                        await PhoneAgentRuntime.shared.runLiveTaskProbeIfRequested()
                     } else if ProcessInfo.processInfo.arguments.contains("--task-pip-probe") {
                         if streamProbe { statusPiP.setBackgroundMode(.audio) }
                         model.start()
@@ -96,7 +113,7 @@ import Darwin
                 }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     if phase == .background { PairingFlow.shared.background() }
-                    else if phase == .active && !hardwareDiagnosticMode { PairingFlow.shared.resume() }
+                    else if phase == .active && !hardwareDiagnosticMode && !liveTaskDiagnosticMode { PairingFlow.shared.resume() }
                     model.setScene(phase == .active ? .active : phase == .background ? .background : .inactive)
                     model.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
                     scheduledTasks.setProtectedDataAvailable(UIApplication.shared.isProtectedDataAvailable)
@@ -137,7 +154,14 @@ import Darwin
     }
     @ViewBuilder private var rootContent: some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
+        if ProcessInfo.processInfo.arguments.contains("--hardware-notes-task-verification") {
+            VStack(spacing: 20) {
+                Text("备忘录任务验收").font(.title2.bold())
+                Text(notesTaskStatus).multilineTextAlignment(.center)
+                Text("开发侧读取实际页面确认新建及保存结果；锁定、过期或异常会停止蓝牙输入。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.padding(28)
+        } else if ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") {
             BluetoothHIDMouseVerificationView(autoStart: true)
         } else {
             ContentView(model: model, statusPiP: statusPiP, commands: PhoneAgentRuntime.shared.commands,

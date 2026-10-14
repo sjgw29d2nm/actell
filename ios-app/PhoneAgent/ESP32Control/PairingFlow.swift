@@ -539,7 +539,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         if case NCMControlError.unavailable(let message) = error { return message }
         if let probeError = error as? NCMError {
             switch probeError {
-            case .interfaceUnavailable: return "未检测到硬件 USB 连接，请检查接线"
+            case .interfaceUnavailable:
+                if BluetoothBoardFlow.shared.connected {
+                    return "蓝牙硬件已连接，但当前版本的 AI 手机操控尚未接入蓝牙；未检测到可用的 USB 操控连接。本轮停止，请勿反复重试。"
+                }
+                return "未检测到硬件 USB 连接，请检查接线"
             case .interfaceAmbiguous: return "检测到多个硬件网络接口，请断开多余连接后重新验证"
             case .interfaceInvalid: return "硬件 USB 网络地址或接口不匹配，请检查 USB 连接"
             case .timeout: return "硬件响应超时，请靠近硬件并重新验证"

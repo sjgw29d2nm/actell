@@ -1,4 +1,7 @@
 import Foundation
+#if DEBUG
+import UIKit
+#endif
 
 /// There is one app process, one conversation store, and independently lifecycle-managed conversation runners.
 @MainActor final class PhoneAgentRuntime {
@@ -54,6 +57,142 @@ import Foundation
         }
     }
     #if DEBUG
+    private var invokedLiveTaskProbe = false
+    private var waitingLiveTaskProbe = false
+    /// Explicit real-provider acceptance. It observes only its new command/run;
+    /// it never selects a route, supplies credentials or resumes a saved task.
+    func runLiveTaskProbeIfRequested() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--live-task-verification"), !invokedLiveTaskProbe, !waitingLiveTaskProbe else { return }
+        waitingLiveTaskProbe = true
+        defer { waitingLiveTaskProbe = false }
+        let goalIndex = arguments.firstIndex(of: "--live-task-goal")
+        let goal = goalIndex.flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let url = URL.documentsDirectory.appending(path: "live-task-verification.log")
+        let began = Date()
+        var lines: [String] = [], logWritable = true
+        func publicText(_ value: String) -> String {
+            var safe = goal.isEmpty ? value : value.replacingOccurrences(of: goal, with: "[task text omitted]")
+            for pattern in [#"https?://[^\s\"<>]+"#,
+                            #"(?i)\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+"#,
+                            #"(?i)\b(?:api[_ -]?key|token|password|secret|authorization)\s*[:=]\s*[^\s,;]+"#,
+                            #"\b[A-Za-z0-9_-]{32,}(?:\.[A-Za-z0-9_-]+)*\b"#] {
+                safe = safe.replacingOccurrences(of: pattern, with: "[redacted]", options: .regularExpression)
+            }
+            return String(safe.replacingOccurrences(of: "\n", with: " | ").replacingOccurrences(of: "\r", with: " ").prefix(800))
+        }
+        func record(_ value: String) {
+            lines.append(String(format: "%.3f ", Date().timeIntervalSince(began)) + publicText(value))
+            lines = Array(lines.suffix(128))
+            do { try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url, options: [.atomic, .completeFileProtection]) }
+            catch { logWritable = false }
+        }
+        record("probe.begin goal_bytes=\(goal.utf8.count)")
+        guard logWritable else { return }
+        guard !goal.isEmpty, !goal.hasPrefix("--"), goal.utf8.count <= 2_000 else { record("probe.rejected invalid_goal"); return }
+        guard !arguments.contains("--ui-testing"), !arguments.contains("--task-pip-probe"),
+              ProcessInfo.processInfo.environment["PHONEAGENT_ISOLATED_TESTS"] != "1" else {
+            record("probe.rejected fixture_runtime"); return
+        }
+        let foregroundDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while UIApplication.shared.applicationState != .active || !UIApplication.shared.isProtectedDataAvailable || !model.commandCanStart {
+            guard !Task.isCancelled, ContinuousClock.now < foregroundDeadline else {
+                record("probe.rejected foreground_or_unlock_not_ready"); return
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { record("probe.cancelled before_start"); return }
+        }
+        guard !model.hasBusySessions, !model.isListening, !PairingFlow.shared.running,
+              !PairingFlow.shared.agentReserved, !BluetoothHIDTransport.shared.busy else {
+            record("probe.rejected existing_operation_busy"); return
+        }
+        invokedLiveTaskProbe = true
+        if let selection = model.providers.defaultSelection {
+            record("provider name=\(selection.profile.name) model=\(selection.model)")
+        } else { record("provider none_configured") }
+        guard logWritable, !Task.isCancelled else { record("probe.cancelled before_command"); return }
+        let command = SessionCommand(.execute(goal), source: .app)
+        var started = false
+        do {
+            let result = try commands.perform(command)
+            record("command.result=\(String(describing: result))")
+            if case .started = result { started = true }
+        } catch { record("command.failed public_error=\(error.localizedDescription)") }
+        // A handoff that was not started must not execute after this probe exits.
+        commands.discardPendingExecution(commandID: command.commandID)
+        guard let session = model.sessions.conversations.first(where: { $0.entry?.commandID == command.commandID }),
+              let worker = model.existingExecutionModel(for: session.id) else {
+            record("probe.end new_session_or_worker_unavailable"); return
+        }
+        if let profile = model.selectedProvider(in: session.id) {
+            record("session.provider name=\(profile.name) model=\(model.selectedModel(in: session.id))")
+        }
+        if let error = worker.errorMessage { record("session.public_error=\(error)") }
+        guard started, let identity = worker.ownedRun, identity.conversationID == session.id else {
+            record("probe.end task_not_started phase=\(session.phase.rawValue)"); return
+        }
+        var lastStatus = "", lastError = "", runChanged = false
+        var observedTools: [String: String] = [:], observedReplies: Set<UUID> = []
+        func observe() {
+            guard let current = model.sessions.conversation(session.id) else { return }
+            guard !current.messages.contains(where: { $0.role == .user && $0.runID != identity.runID }) else {
+                if !runChanged { record("probe.run_changed"); runChanged = true }
+                return
+            }
+            let status = "run phase=\(current.phase.rawValue) running=\(worker.running) stopping=\(worker.stopping) status=\(worker.status)"
+            if status != lastStatus { lastStatus = status; record(status) }
+            if let error = worker.errorMessage, error != lastError { lastError = error; record("run.public_error=\(error)") }
+            for (index, message) in current.messages.enumerated() where message.runID == identity.runID {
+                if let tool = message.tool {
+                    var result = "result_bytes=\(tool.result.utf8.count) contents=not_logged"
+                    if [.failed, .denied, .cancelled, .interrupted, .outcomeUnknown].contains(tool.state) {
+                        result = "public_error=" + publicText(tool.displayResult)
+                    } else if ["Command delivery acknowledged.", "Wait completed.", "本轮执行时间已确认：现在；可继续使用设备工具"].contains(tool.result) {
+                        result = "public_result=" + tool.result
+                    } else if tool.name == "screenshot", let data = tool.result.data(using: .utf8),
+                              let frame = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let width = frame["width"] as? Int, let height = frame["height"] as? Int {
+                        result = "frame=\(width)x\(height) demo=\(frame["is_demo"] as? Bool ?? false)"
+                    } else if tool.name == "list_apps", let data = tool.result.data(using: .utf8),
+                              let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                        result = "app_count=\(apps.count) names=not_logged"
+                    }
+                    let observation = "tool step=\(index) name=\(tool.name) state=\(tool.state.rawValue) \(result)"
+                    if observedTools[tool.callID] != observation { observedTools[tool.callID] = observation; record(observation) }
+                } else if message.role == .assistant, message.state != .streaming, !observedReplies.contains(message.id) {
+                    observedReplies.insert(message.id)
+                    record("assistant.public_result state=\(message.state.rawValue) bytes=\(message.text.utf8.count) contents=not_logged")
+                }
+            }
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(45))
+        while !Task.isCancelled, logWritable, ContinuousClock.now < deadline {
+            observe()
+            if !worker.running && !worker.stopping { break }
+            if runChanged { break }
+            do { try await Task.sleep(for: .milliseconds(500)) }
+            catch { break }
+        }
+        observe()
+        if worker.ownedRun == identity, worker.running {
+            record("probe.stop_requested reason=\(Task.isCancelled ? "cancelled" : logWritable ? "deadline" : "log_unavailable")")
+            record("probe.stop_accepted=\(model.stop(run: identity))")
+        }
+        // A fresh cleanup task can still wait when the caller's task was cancelled.
+        let released = await Task { @MainActor in
+            let stopDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while worker.stopping, ContinuousClock.now < stopDeadline {
+                if let current = worker.ownedRun, current != identity { return false }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return !worker.stopping && !worker.running
+        }.value
+        observe()
+        let finalPhase = runChanged ? "superseded" : model.sessions.conversation(session.id)?.phase.rawValue ?? "missing"
+        record("probe.end phase=\(finalPhase) release_confirmed=\(released)")
+    }
+
     private var invokedSiriFixture = false
     func invokeSiriFixtureIfNeeded(busy: Bool) async {
         let arguments = ProcessInfo.processInfo.arguments

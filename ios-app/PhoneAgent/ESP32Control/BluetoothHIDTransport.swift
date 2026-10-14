@@ -90,7 +90,8 @@ enum BluetoothHIDWire {
     private func recordDiagnostic(_ line: String) {
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") ||
-              ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") else { return }
+              ProcessInfo.processInfo.arguments.contains("--hardware-hid-auto-verification") ||
+              ProcessInfo.processInfo.arguments.contains("--hardware-notes-task-verification") else { return }
         diagnosticLines.append(Date().ISO8601Format() + " " + line)
         if diagnosticLines.count > 240 { diagnosticLines.removeFirst(diagnosticLines.count - 240) }
         let url = URL.documentsDirectory.appending(path: "hardware-hid-verification.log")

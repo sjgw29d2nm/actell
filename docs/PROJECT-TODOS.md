@@ -666,3 +666,24 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - Mac 随后设备检测原文 `[]`、`Device not found: usbmux has no device matching udid 00008101-000969E13E68001E`，板子原串口原文 `ls: /dev/cu.usbmodem5D010067491: No such file or directory`。已请求用户将手机与 COM 编程口接回 Mac；独立参考核对／固件构建继续，未把手机蓝牙已连接当成 Mac 安装／取证可用。
 - 固件提交 `6e3cbb763f7425997094af36e947ae5bf169bdea` 的实际 ESP-IDF 增量构建通过：App `642704` bytes、SHA256 `1962bd5f1e0ccbc362e706f61a4354622a4dafe50b79a54c4d1b4218d792f35a`，仍余 `405872` bytes。新 bootloader／分区与已验证基线逐字节一致；已固定候选并准备只写 App、目标核对／区域校验／受控启动的工具，尚未烧录。源比较只出现广告类别及说明注释变更；原 BH1／PA3／USB 互斥检查按未变更输入复用，无新增生产依赖。
 - App 1.12 无签名产物 `11869245623`、归档 SHA256 `fae1017c48624584a409732cffbce8a6f745255c7135c35cfc1a6230ac9294c6`，严格本机签名候选已准备。后续先用仍安装的 App 1.11／原测试序列验收新设备类别，再装 1.12 验收定位调整，分别记录，避免同时改两个变量而把结果归因给单项。当前鼠标实际点击仍未通过，物理更新／验收等待两个设备接回 Mac。
+
+### 2026-10-14 · iPhone 12 Pro Max 蓝牙鼠标实机通过
+
+- 用户重新接入手机及板子 COM 后，核对 iPhone UDID 与 ESP32-S3 MAC／串口，固件 `6e3cbb7` 仅写 App 区域 `0x10000`；写入、原 bootloader／分区与新 App 区域校验均返回 0，启动确认蓝牙广播、未启动硬件 Wi-Fi。NVS／蓝牙配对记录未覆盖。原文 `Flash write and region verification succeeded`、`Runtime boot and Bluetooth advertising verified; no hardware Wi-Fi startup`；本地清单 `.build/board-ble-hid-flash-6e3cbb7/manifest.json` 为 `flash_and_boot_verified`。
+- 先保持 App 1.11 的原测试序列，只更新固件类别；第一点击时原文 `2026-10-14T05:21:47Z test.cancelled`，随后 `test.cancelled_release 蓝牙键鼠已释放`、`id=76 verb=STOP phase=neutral_sent code=ok`，UI 没有点击。结果截图的小灰色指针仍在左上状态栏、画布上方，支持原有限回撤未进入画布的判断；未把单改广告类别宣称为首点修复。
+- 随后通过 USB 保留数据更新 App 1.12，安装后查询版本／来源确认为 `1.12`／`5631dbb2dbf5cb2871f948e56033d6182a57b056`，启动成功。自动测试只操作随办自身画布：原始 `canvas.global x=0.0 y=47.0 width=428.0 height=784.7`，两次真实 UI 事件分别为 `2026-10-14T05:25:48Z ui.tap count=1 x=86.3 y=110.3`、`2026-10-14T05:25:56Z ui.tap count=2 x=142.0 y=166.0`；实际位置距离 `78.7` 点。随后 `id=255 verb=STOP phase=neutral_sent code=ok`，原文 `2026-10-14T05:25:57Z PASS actual_motion actual_clicks=2 stop_neutral no_extra_tap`。结果截图显示 2/2 和两个实际事件标记，无需用户操作方向按钮。
+- 本地原始证据为 `.build/ble-hid-acceptance-20261014/app112-mouse-verification.log`、`app112-bh1-verification.log`、`app112-result.png`。观察工具的开始时间过滤错过已结束测试，随后从自身 App 直接取回完整日志，时间与这次安装启动一致；没有再次发送点击，也没有点击前截图，不把结果截图当作点击前指针证据。
+- 更新后复核智谱完整供应商配置／Keychain 引用与随办自身 647 bytes 配对身份保持一致。英文／中文输入沿用用户对 1.9 的实机确认，鼠标移动、两次实际点击及停止释放为本次新增实机证据。完整纯 BLE AI 的跨 App 截图、绝对定位／拖动，以及 Lightning 物理 USB 控制仍未验收；本次通过不代表这些路径已完成。
+
+### 2026-10-14 · 真实任务验收入口
+
+- 用户补充要求测试实际任务。增加仅 DEBUG 的显式真实任务入口，直接调用现有命令服务和当前供应商／Keychain，拒绝演示 fixture；只记录本次新会话的公开状态／工具错误，最多观察 45 秒，随后精确取消该轮并等待停止。诊断模式只抑制启动时自动恢复连接，设备工具的实际连接要求不放宽。
+- 另加一个独立 DEBUG 文件 `BluetoothNotesTaskVerification.swift`，用于有限的固定备忘录流程；复用现有 BH1／有限后台 lease，不增加生产依赖或 AI transport。Mac 打开系统备忘录并观察页面，手机仅按本轮随机 run_id 的固定顺序确认发送新建、粘贴、结束；新空白笔记须实际截图确认后才允许输入固定非敏感中文文本。报告回执不代表保存成功，最终还需重开备忘录验证。锁定、超时、未知结果或占用变化均停止，不重发动作。
+- 当前生产 AI 主流程仍选用 NCMDeviceBridge，没有接入 BLE 视觉控制桥；本机签名也未授权 Broadcast 扩展／共享组。真实模型任务与 Mac 辅助的固定蓝牙跨 App 流程分别验收，不能互相替代。源码／项目检查通过；本次原生构建、安装及真实任务结果待补。
+
+### 2026-10-14 · 用户实际任务的重复连接等待
+
+- 用户自行提交备忘录绘图任务后反馈响应慢，已按授权取手机截图及本轮持久化工具记录，没有替用户重新派发操作。实际起止 `2026-10-14T05:41:06.184195Z` 至 `05:42:44.045380Z`，耗时 `97.86` 秒；首工具在 `6.68` 秒后出现。本轮六项工具依次为 `run_task_now`、`load_skill`、`list_apps`、`list_apps`、`wait`、`list_apps`，三次 App 查询均失败，原文完全相同：`等待手机操控连接超时。未检测到硬件 USB 连接，请检查接线`。任务没有进入备忘录或绘图。证据仅本地 `.build/ble-hid-acceptance-20261014/user-task-slow-0548.png`、`user-notes-task-timing.json`，不上传手机画面／用户历史。
+- 根因定位为 `NCMDeviceBridge.prepareConnection` 每秒重新调用连接，`PairingFlow.verify` 明确失败后下一次又清空失败并重新验证，直到每个工具耗满 20 秒；普通工具错误又允许模型下一轮再次查询。新逻辑只发起一次连接；通过已有就绪／运行状态和 session 代际识别已结束的明确失败，立即返回并按代缓存。外部显式验证换代或就绪后允许新的观察，慢连接仍保留有界等待，取消／停止优先。
+- 专用 `AppError.deviceConnectionFailed` 只标记已确认的连接失败，设备工具据此结束本轮并释放；参数错误、普通临时不可用和未知动作仍保持既有处理。结束页优先显示首条连接失败并标为 blocked，避免同批未执行工具遮盖原因，不额外请求模型生成失败说明。USB 接口缺失且蓝牙已连接时，明确提示当前 AI 操控未接入蓝牙，停止反复尝试；没有自动切换通道。
+- 新增针对性回归覆盖，不删除原协议／停止释放／普通聊天／慢连接测试。候选源码检查与实际 SDK 构建分别记录；当前手机仍是 1.12，新诊断及快速失败修复尚未安装，完整 BLE AI 截图／执行链路仍未完成。
