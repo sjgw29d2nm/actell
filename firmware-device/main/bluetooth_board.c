@@ -89,7 +89,8 @@ static void advertise(void) {
     fields.uuids128_is_complete=1;
     static const ble_uuid16_t hid_service=BLE_UUID16_INIT(0x1812);
     fields.uuids16=(ble_uuid16_t *)&hid_service;fields.num_uuids16=1;fields.uuids16_is_complete=1;
-    fields.appearance=0x03c1;fields.appearance_is_present=1;
+    /* iOS-tested HID mouse/keyboard references advertise the Mouse category. */
+    fields.appearance=0x03c2;fields.appearance_is_present=1;
     int result=ble_gap_adv_set_fields(&fields);
     if (result!=0) { ESP_LOGE(TAG,"advertising data failed: %d",result);return; }
     struct ble_hs_adv_fields scan_response={0};
