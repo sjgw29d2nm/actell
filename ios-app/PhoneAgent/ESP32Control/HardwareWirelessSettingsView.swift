@@ -652,6 +652,13 @@ struct HardwareWirelessSettingsView: View {
                 }
             }
             Section {
+                NavigationLink { BluetoothHIDSettingsView() } label: {
+                    Label("蓝牙键鼠与输入验收", systemImage: "keyboard")
+                }.accessibilityIdentifier("openBluetoothHIDSettings")
+            } header: { Text("纯蓝牙输入") } footer: {
+                Text("可单独验证蓝牙键盘和鼠标，不配置硬件 Wi-Fi。跨 App 自动执行还需手机屏幕采集及指针定位验收。")
+            }
+            Section {
                 NavigationLink { wirelessConfigurationForm } label: {
                     Label("蓝牙与 Wi-Fi 配置", systemImage: "antenna.radiowaves.left.and.right")
                 }.accessibilityIdentifier("openHardwareWirelessConfiguration")

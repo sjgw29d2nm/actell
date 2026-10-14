@@ -209,7 +209,8 @@ struct BluetoothRouterState: Decodable, Sendable {
         } catch {
             record("network.read unavailable network_changed_by_probe=false")
         }
-        record("probe.end bluetooth_connected=\(connected)")
+            record("hid.firmware.capability supported=\(BluetoothHIDTransport.shared.supported)")
+            record("probe.end bluetooth_connected=\(connected)")
         #endif
     }
 
@@ -277,6 +278,7 @@ struct BluetoothRouterState: Decodable, Sendable {
     }
     func disconnect() { disconnect(message: "蓝牙连接已断开") }
     private func disconnect(message: String) {
+        BluetoothHIDTransport.shared.invalidate(message)
         stopScan(); reconnectRequested = false; epoch = UUID()
         connectionTimer?.cancel(); connectionTimer = nil
         finishCommand(.failure(AppError.unavailable("蓝牙连接已断开")))
@@ -381,7 +383,7 @@ struct BluetoothRouterState: Decodable, Sendable {
         previous?.continuation.resume(with: result)
     }
     private func refreshBusy() {
-        busy = pending != nil || pendingWiFiRead != nil || pendingRouterWrite != nil || pendingRouterRead != nil
+        busy = pending != nil || pendingWiFiRead != nil || pendingRouterWrite != nil || pendingRouterRead != nil || BluetoothHIDTransport.shared.busy
     }
     func configureRouter(ssid: String, passphrase: String) async throws {
         guard connected, !busy, let selected, let characteristic = routerConfiguration else {
@@ -466,6 +468,7 @@ struct BluetoothRouterState: Decodable, Sendable {
                 self.rememberedPeripheralID = self.selected?.identifier
                 if let id = self.rememberedPeripheralID { UserDefaults.standard.set(id.uuidString, forKey: Self.rememberedDeviceKey) }
                 self.message = "蓝牙诊断已连接，双向通信验证通过"
+                BluetoothHIDTransport.shared.confirmBoard(id: information.id, capability: information.capabilities.contains("ble_hid_v1"))
             } catch {
                 guard self.epoch == current else { return }
                 self.disconnect(message: "蓝牙配对或通信验证失败，请重新连接")
@@ -518,10 +521,12 @@ struct BluetoothRouterState: Decodable, Sendable {
         guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == Self.service }) else {
             disconnect(message: "板子未提供随办蓝牙服务，请更新固件"); return
         }
-        peripheral.discoverCharacteristics([Self.informationID, Self.commandID, Self.responseID, Self.wifiConfigurationID, Self.routerConfigurationID, Self.routerStateID], for: service)
+        peripheral.discoverCharacteristics([Self.informationID, Self.commandID, Self.responseID, Self.wifiConfigurationID, Self.routerConfigurationID, Self.routerStateID,
+            BluetoothHIDTransport.commandID, BluetoothHIDTransport.responseID], for: service)
     }
     func peripheral(_ peripheral: CBPeripheral, didModifyServices invalidatedServices: [CBService]) {
         guard selected === peripheral, invalidatedServices.contains(where: { $0.uuid == Self.service }) else { return }
+        BluetoothHIDTransport.shared.invalidate("蓝牙服务已变化，旧输入会话已停止")
         epoch = UUID(); let current = epoch
         connectionTimer?.cancel(); connectionTimer = nil
         finishCommand(.failure(AppError.unavailable("硬件服务已更新，请等待重新发现")))
@@ -555,15 +560,23 @@ struct BluetoothRouterState: Decodable, Sendable {
         routerConfiguration = chars.first(where: { $0.uuid == Self.routerConfigurationID && $0.properties.contains(.write) })
         routerState = chars.first(where: { $0.uuid == Self.routerStateID && $0.properties.contains(.read) })
         supportsRouterConfiguration = routerConfiguration != nil && routerState != nil
+        let hid = BluetoothHIDTransport.shared
+        hid.onBusyChanged = { [weak self] in self?.refreshBusy() }
+        hid.onFatalError = { [weak self] in self?.disconnect(message: "蓝牙输入已停止，请重新连接硬件") }
+        hid.bind(peripheral,
+            command: chars.first(where: { $0.uuid == BluetoothHIDTransport.commandID && $0.properties.contains(.write) }),
+            response: chars.first(where: { $0.uuid == BluetoothHIDTransport.responseID && $0.properties.contains(.notify) && $0.properties.contains(.read) }))
         peripheral.setNotifyValue(true, for: reply)
         peripheral.readValue(for: info)
     }
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        if selected === peripheral, BluetoothHIDTransport.shared.notificationChanged(peripheral, characteristic: characteristic, error: error) { return }
         guard selected === peripheral, characteristic === response else { return }
         guard error == nil, characteristic.isNotifying else { disconnect(message: "无法接收板子回应"); return }
         finishDiscoveryIfReady()
     }
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        if selected === peripheral, BluetoothHIDTransport.shared.writeCompleted(peripheral, characteristic: characteristic, error: error) { return }
         if selected === peripheral, let pending = pendingRouterWrite, pending.epoch == epoch,
            pending.peerID == peripheral.identifier, pending.characteristic === characteristic, characteristic === routerConfiguration {
             finishRouterWrite(error == nil ? .success(Void()) : .failure(AppError.unavailable("硬件未接收配网请求，请检查设备是否忙碌；未自动重发")))
@@ -574,6 +587,7 @@ struct BluetoothRouterState: Decodable, Sendable {
     }
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard selected === peripheral else { return }
+        if BluetoothHIDTransport.shared.valueUpdated(peripheral, characteristic: characteristic, error: error) { return }
         if characteristic.uuid == Self.routerStateID {
             guard let pending = pendingRouterRead, pending.epoch == epoch, pending.peerID == peripheral.identifier,
                   pending.characteristic === characteristic, characteristic === routerState else { return }

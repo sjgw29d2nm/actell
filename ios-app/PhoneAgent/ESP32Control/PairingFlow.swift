@@ -31,7 +31,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         lastFailure = nil
         message = "配置已保存，请重新连接"
     }
-    var canChangeRoute: Bool { !running && !agentReserved && connectionUsers.isEmpty && !mediaLifetime.stopping }
+    var canChangeRoute: Bool { !running && !agentReserved && connectionUsers.isEmpty && !mediaLifetime.stopping && !BluetoothHIDTransport.shared.busy }
     @discardableResult func selectRoute(_ selected: DeviceControlRoute) -> Bool {
         guard selected != .localCaptureUSB, canChangeRoute, !HardwareWiFiFlow.shared.busy else { return false }
         guard selected != route else { return true }
@@ -228,11 +228,12 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func restoreConnection() {
         hasRecord = store.exists
-        if hasRecord, !pairingActive, !running, !ready { verify() }
+        if hasRecord, !pairingActive, !running, !ready, !BluetoothHIDTransport.shared.busy { verify() }
     }
     /// Called only by a device tool or App startup, never by normal chat.
     /// Concurrent waiters share the same verification job.
     func connectIfNeeded() throws {
+        guard !BluetoothHIDTransport.shared.busy else { throw NCMControlError.unavailable("蓝牙输入正在使用硬件，请先停止并释放，再连接 USB 或 Wi-Fi") }
         guard !HardwareWiFiFlow.shared.busy else { throw NCMControlError.unavailable("正在配置硬件 Wi-Fi，请完成后再连接") }
         hasRecord = store.exists
         if ready || pairingActive { return }
@@ -240,7 +241,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         if !running && !agentReserved { verify() }
     }
     func verify() {
-        guard !running, !agentReserved, !HardwareWiFiFlow.shared.busy, store.exists else { return }
+        guard !running, !agentReserved, !HardwareWiFiFlow.shared.busy, !BluetoothHIDTransport.shared.busy, store.exists else { return }
         let previousMaintenance = heartbeatTask
         stopHeartbeat()
         mediaLifetime.revoke()

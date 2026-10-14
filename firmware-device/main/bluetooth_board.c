@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "bluetooth_board.h"
+#include "bluetooth_hid.h"
 #include "usb_device.h"
 #include "wifi_board.h"
 #include "esp_log.h"
@@ -30,6 +31,8 @@ static const ble_uuid128_t response_uuid=BOARD_UUID(0x03);
 static const ble_uuid128_t wifi_information_uuid=BOARD_UUID(0x04);
 static const ble_uuid128_t router_configuration_uuid=BOARD_UUID(0x05);
 static const ble_uuid128_t router_information_uuid=BOARD_UUID(0x06);
+static const ble_uuid128_t hid_command_uuid=BOARD_UUID(0x07);
+static const ble_uuid128_t hid_ack_uuid=BOARD_UUID(0x08);
 static const char *TAG="suiban_ble";
 static uint8_t address_type;
 static uint16_t response_handle;
@@ -41,6 +44,8 @@ static int access_characteristic(uint16_t connection,uint16_t attribute,
                                  struct ble_gatt_access_ctxt *context,void *argument) {
     (void)attribute;
     uintptr_t kind=(uintptr_t)argument;
+    if(context->op==BLE_GATT_ACCESS_OP_WRITE_CHR&&kind==7)return bluetooth_hid_access(connection,context,true);
+    if(context->op==BLE_GATT_ACCESS_OP_READ_CHR&&kind==8)return bluetooth_hid_access(connection,context,false);
     if((context->op==BLE_GATT_ACCESS_OP_READ_CHR&&(kind==4||kind==6))||
        (context->op==BLE_GATT_ACCESS_OP_WRITE_CHR&&kind==5)) {
         struct ble_gap_conn_desc security;
@@ -71,7 +76,7 @@ static int access_characteristic(uint16_t connection,uint16_t attribute,
         char information[256];
         int length=snprintf(information,sizeof information,
             "{\"version\":1,\"id\":\"%s\",\"name\":\"随办硬件v1\",\"chip\":\"esp32s3\","
-            "\"usb_connected\":%s,\"uptime_ms\":%"PRId64",\"capabilities\":[\"status\",\"ping\",\"wifi_setup\",\"router_setup\"]}",
+            "\"usb_connected\":%s,\"uptime_ms\":%"PRId64",\"capabilities\":[\"status\",\"ping\",\"wifi_setup\",\"router_setup\",\"ble_hid_v1\"]}",
             device_id,usb_online()?"true":"false",esp_timer_get_time()/1000);
         if (length<0 || (size_t)length>=sizeof information) return BLE_ATT_ERR_UNLIKELY;
         return os_mbuf_append(context->om,information,(uint16_t)length)==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -103,6 +108,8 @@ static const struct ble_gatt_svc_def services[]={
          {.uuid=&wifi_information_uuid.u,.access_cb=access_characteristic,.arg=(void *)4,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_READ_ENC},
          {.uuid=&router_configuration_uuid.u,.access_cb=access_characteristic,.arg=(void *)5,.flags=BLE_GATT_CHR_F_WRITE|BLE_GATT_CHR_F_WRITE_ENC},
          {.uuid=&router_information_uuid.u,.access_cb=access_characteristic,.arg=(void *)6,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_READ_ENC},
+         {.uuid=&hid_command_uuid.u,.access_cb=access_characteristic,.arg=(void *)7,.flags=BLE_GATT_CHR_F_WRITE|BLE_GATT_CHR_F_WRITE_ENC},
+         {.uuid=&hid_ack_uuid.u,.access_cb=access_characteristic,.arg=(void *)8,.val_handle=&bluetooth_hid_ack_handle,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_NOTIFY|BLE_GATT_CHR_F_READ_ENC},
          {0}}},
     {0}
 };
@@ -113,6 +120,9 @@ static void advertise(void) {
     fields.uuids128=(ble_uuid128_t *)&service_uuid;
     fields.num_uuids128=1;
     fields.uuids128_is_complete=1;
+    static const ble_uuid16_t hid_service=BLE_UUID16_INIT(0x1812);
+    fields.uuids16=(ble_uuid16_t *)&hid_service;fields.num_uuids16=1;fields.uuids16_is_complete=1;
+    fields.appearance=0x03c1;fields.appearance_is_present=1;
     int result=ble_gap_adv_set_fields(&fields);
     if (result!=0) { ESP_LOGE(TAG,"advertising data failed: %d",result);return; }
     struct ble_hs_adv_fields scan_response={0};
@@ -132,6 +142,7 @@ static void advertise(void) {
 
 static int gap_event(struct ble_gap_event *event,void *argument) {
     (void)argument;
+    bluetooth_hid_gap(event);
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         ESP_LOGI(TAG,"connection result=%d",event->connect.status);
@@ -153,6 +164,7 @@ static int gap_event(struct ble_gap_event *event,void *argument) {
 }
 
 static void host_reset(int reason) {
+    bluetooth_hid_reset();
     ESP_LOGE(TAG,"host reset reason=%d",reason);
 }
 static void host_sync(void) {
@@ -192,7 +204,8 @@ esp_err_t bluetooth_board_start(void) {
     ble_hs_cfg.sm_their_key_dist=BLE_SM_PAIR_KEY_DIST_ENC|BLE_SM_PAIR_KEY_DIST_ID;
     ble_svc_gap_init();
     ble_svc_gatt_init();
-    int code=ble_gatts_count_cfg(services);
+    int code=bluetooth_hid_init();
+    if(code==0)code=ble_gatts_count_cfg(services);
     if (code==0) code=ble_gatts_add_svcs(services);
     if (code==0) code=ble_svc_gap_device_name_set("Suiban-v1");
     if (code!=0) { nimble_port_deinit();return ESP_FAIL; }

@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
 APP_DISPLAY_NAME = PROJECT_CONFIG["settings"]["base"]["APP_DISPLAY_NAME"]
 IOS_DEPLOYMENT_TARGET = str(PROJECT_CONFIG["options"]["deploymentTarget"]["iOS"])
+BROADCAST_APP_GROUP = PROJECT_CONFIG["settings"]["base"]["BROADCAST_APP_GROUP_IDENTIFIER"]
+BROADCAST_BUNDLE_ID = PROJECT_CONFIG["targets"]["PhoneAgentBroadcast"]["settings"]["base"]["PRODUCT_BUNDLE_IDENTIFIER"]
 objects = {}
 
 
@@ -55,18 +57,21 @@ def generate():
             requirement=dict(kind="exactVersion", version="2.4.1")),
     ]
     targets, groups, products = [], [], []
-    for name, extension, product_type in [("PhoneAgent", "app", "application"), ("PhoneAgentTests", "xctest", "bundle.unit-test"), ("PhoneAgentUITests", "xctest", "bundle.ui-testing"), ("PhoneAgentLiveActivity", "appex", "app-extension")]:
+    for name, extension, product_type in [("PhoneAgent", "app", "application"), ("PhoneAgentTests", "xctest", "bundle.unit-test"), ("PhoneAgentUITests", "xctest", "bundle.ui-testing"), ("PhoneAgentLiveActivity", "appex", "app-extension"), ("PhoneAgentBroadcast", "appex", "app-extension")]:
         sources, children = [], []
         paths = list((ROOT / name).rglob("*.swift"))
         if os.environ.get("INCLUDE_ARCHIVED_TESTS") == "1" and name in ("PhoneAgentTests", "PhoneAgentUITests"):
             paths += list((ROOT.parent / "archives/tests" / name).glob("*.swift"))
         if name in ("PhoneAgent", "PhoneAgentLiveActivity"):
             paths += list((ROOT / "Shared").rglob("*.swift"))
+        if name == "PhoneAgentBroadcast":
+            paths.append(ROOT / "PhoneAgent/Capture/ReplayKitBroadcastStore.swift")
         for path in sorted(paths):
             relative = Path(os.path.relpath(path, ROOT)).as_posix()
-            ref = add((name if relative.startswith("Shared/") else "") + relative, "PBXFileReference", lastKnownFileType="sourcecode.swift", path=relative, sourceTree="SOURCE_ROOT")
+            source_key = (name if relative.startswith("Shared/") or name == "PhoneAgentBroadcast" else "") + relative
+            ref = add(source_key, "PBXFileReference", lastKnownFileType="sourcecode.swift", path=relative, sourceTree="SOURCE_ROOT")
             children.append(ref)
-            sources.append(add((name if relative.startswith("Shared/") else "") + relative + "Build", "PBXBuildFile", fileRef=ref))
+            sources.append(add(source_key + "Build", "PBXBuildFile", fileRef=ref))
         if name == "PhoneAgent":
             for path in sorted((ROOT.parent / "ncm-dev/PhoneAgentNCM/Sources/PhoneAgentNCM").glob("*.swift")):
                 relative = "../ncm-dev/PhoneAgentNCM/Sources/PhoneAgentNCM/" + path.name
@@ -84,10 +89,12 @@ def generate():
             ref = add(relative, "PBXFileReference", lastKnownFileType="text.json.xcstrings", path=relative, sourceTree="SOURCE_ROOT")
             children.append(ref)
             resources.append(add(relative + "Build", "PBXBuildFile", fileRef=ref))
-        if name == "PhoneAgent":
-            ref = add("PrivacyManifest", "PBXFileReference", lastKnownFileType="text.xml", path="PhoneAgent/PrivacyInfo.xcprivacy", sourceTree="SOURCE_ROOT")
+        if name in ("PhoneAgent", "PhoneAgentBroadcast"):
+            privacy_key = "" if name == "PhoneAgent" else name
+            ref = add(privacy_key + "PrivacyManifest", "PBXFileReference", lastKnownFileType="text.xml", path=name + "/PrivacyInfo.xcprivacy", sourceTree="SOURCE_ROOT")
             children.append(ref)
-            resources.append(add("PrivacyBuild", "PBXBuildFile", fileRef=ref))
+            resources.append(add(privacy_key + "PrivacyBuild", "PBXBuildFile", fileRef=ref))
+        if name == "PhoneAgent":
             ref = add("Licenses", "PBXFileReference", lastKnownFileType="folder", path="Licenses", sourceTree="SOURCE_ROOT")
             children.append(ref)
             resources.append(add("LicensesBuild", "PBXBuildFile", fileRef=ref))
@@ -100,7 +107,7 @@ def generate():
                       includeInIndex=0, path=name + "." + extension, sourceTree="BUILT_PRODUCTS_DIR")
         products.append(product)
         package_products, frameworks = [], []
-        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity") else [("SwiftAgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
+        linked_products = [] if name in ("PhoneAgentUITests", "PhoneAgentLiveActivity", "PhoneAgentBroadcast") else [("SwiftAgentKit", packages[0]), ("ProviderCore", packages[1]), ("OpenAIAdapter", packages[1])]
         for product_name, package in linked_products:
             dependency = add(name + product_name, "XCSwiftPackageProductDependency", package=package, productName=product_name)
             package_products.append(dependency)
@@ -121,6 +128,8 @@ def generate():
         if name == "PhoneAgent":
             settings.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="PhoneAgent/Info.plist", INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)",
                             CODE_SIGN_ENTITLEMENTS="PhoneAgent/PhoneAgent.entitlements",
+                            INFOPLIST_KEY_SuibanBroadcastAppGroup="$(BROADCAST_APP_GROUP_IDENTIFIER)",
+                            INFOPLIST_KEY_SuibanBroadcastExtensionBundleIdentifier=BROADCAST_BUNDLE_ID,
                             INFOPLIST_KEY_NSSupportsLiveActivities="YES",
                             INFOPLIST_KEY_NSLocalNetworkUsageDescription="Connect to your explicitly paired development bridge while this app is open.",
                             INFOPLIST_KEY_UIApplicationSceneManifest_Generation="YES",
@@ -138,13 +147,22 @@ def generate():
                                  shellScript='case "$PLATFORM_NAME" in\n iphoneos) mode=device ;;\n iphonesimulator) mode=simulator ;;\n *) exit 1 ;;\nesac\nbash "$SRCROOT/../tools/build_ncm_rust.sh" "$mode"\n'))
             widget = "PhoneAgentLiveActivity"
             embedded = add("EmbedLiveActivityBuild", "PBXBuildFile", fileRef=uid(widget + "Product"), settings=dict(ATTRIBUTES=["RemoveHeadersOnCopy"]))
+            broadcast_embedded = add("EmbedBroadcastBuild", "PBXBuildFile", fileRef=uid("PhoneAgentBroadcastProduct"), settings=dict(ATTRIBUTES=["RemoveHeadersOnCopy"]))
             phases.append(add("EmbedLiveActivity", "PBXCopyFilesBuildPhase", buildActionMask=2147483647, dstPath="", dstSubfolderSpec=13,
-                              files=[embedded], name="Embed App Extensions", runOnlyForDeploymentPostprocessing=0))
+                              files=[embedded, broadcast_embedded], name="Embed App Extensions", runOnlyForDeploymentPostprocessing=0))
             proxy = add("LiveActivityProxy", "PBXContainerItemProxy", containerPortal=uid("Project"), proxyType=1, remoteGlobalIDString=uid(widget + "Target"), remoteInfo=widget)
             dependencies.append(add("LiveActivityDependency", "PBXTargetDependency", target=uid(widget + "Target"), targetProxy=proxy))
+            proxy = add("BroadcastProxy", "PBXContainerItemProxy", containerPortal=uid("Project"), proxyType=1,
+                        remoteGlobalIDString=uid("PhoneAgentBroadcastTarget"), remoteInfo="PhoneAgentBroadcast")
+            dependencies.append(add("BroadcastDependency", "PBXTargetDependency", target=uid("PhoneAgentBroadcastTarget"), targetProxy=proxy))
         elif name == "PhoneAgentLiveActivity":
             settings.update(PRODUCT_BUNDLE_IDENTIFIER="com.ja1chen.PhoneAgent.LiveActivity", INFOPLIST_FILE="PhoneAgentLiveActivity/Info.plist",
                             INFOPLIST_KEY_CFBundleDisplayName="$(APP_DISPLAY_NAME)", APPLICATION_EXTENSION_API_ONLY="YES", SKIP_INSTALL="YES",
+                            LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"])
+        elif name == "PhoneAgentBroadcast":
+            settings.update(PRODUCT_BUNDLE_IDENTIFIER=BROADCAST_BUNDLE_ID, INFOPLIST_FILE="PhoneAgentBroadcast/Info.plist",
+                            CODE_SIGN_ENTITLEMENTS="PhoneAgentBroadcast/PhoneAgentBroadcast.entitlements",
+                            APPLICATION_EXTENSION_API_ONLY="YES", SKIP_INSTALL="YES",
                             LD_RUNPATH_SEARCH_PATHS=["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"])
         else:
             if name == "PhoneAgentUITests":
@@ -159,7 +177,7 @@ def generate():
                            buildPhases=phases, buildRules=[], dependencies=dependencies, packageProductDependencies=package_products))
     products_group = add("Products", "PBXGroup", name="Products", children=products, sourceTree="<group>")
     main_group = add("RootGroup", "PBXGroup", children=groups + [products_group], sourceTree="<group>")
-    common = dict(APP_DISPLAY_NAME=APP_DISPLAY_NAME, SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET=IOS_DEPLOYMENT_TARGET, SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
+    common = dict(APP_DISPLAY_NAME=APP_DISPLAY_NAME, BROADCAST_APP_GROUP_IDENTIFIER=BROADCAST_APP_GROUP, SDKROOT="iphoneos", IPHONEOS_DEPLOYMENT_TARGET=IOS_DEPLOYMENT_TARGET, SWIFT_VERSION="5.0", SWIFT_STRICT_CONCURRENCY="complete",
                   CLANG_ENABLE_MODULES="YES", CLANG_ENABLE_OBJC_ARC="YES", GCC_C_LANGUAGE_STANDARD="gnu17")
     project = add("Project", "PBXProject", attributes=dict(LastUpgradeCheck="2700", BuildIndependentTargetsInParallel="YES"),
                   buildConfigurationList=configs("Project", common), compatibilityVersion="Xcode 14.0", developmentRegion="en",

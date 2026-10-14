@@ -11,7 +11,8 @@ import Darwin
     @Environment(\.scenePhase) private var scenePhase
     private var hardwareDiagnosticMode: Bool {
         #if DEBUG
-        return ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe")
+        return ProcessInfo.processInfo.arguments.contains("--hardware-bluetooth-probe") ||
+            ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification")
         #else
         return false
         #endif
@@ -32,6 +33,9 @@ import Darwin
                 .overlay {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--local-vpn-probe") { LocalVPNProbeView() }
+                    else if ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") {
+                        NavigationStack { BluetoothHIDSettingsView() }
+                    }
                     else if ProcessInfo.processInfo.arguments.contains("--ncm-video-geometry-probe") { NCMVideoGeometryProbeView(statusPiP: statusPiP) }
                     else if ProcessInfo.processInfo.arguments.contains("--ncm-tools-probe") { NCMToolsProbeView(statusPiP: statusPiP) }
                     #endif
@@ -107,6 +111,8 @@ import Darwin
                     #endif
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+                    ReplayKitBroadcastCapture.shared.stop()
+                    Task { await BluetoothHIDTransport.shared.stopAll() }
                     scheduledTasks.setArmed(false)
                     scheduledTasks.setForeground(false)
                     PairingFlow.shared.applicationWillTerminate()
@@ -114,6 +120,8 @@ import Darwin
                     statusPiP.setTaskRunning(false)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataWillBecomeUnavailableNotification)) { _ in
+                    ReplayKitBroadcastCapture.shared.stop()
+                    Task { await BluetoothHIDTransport.shared.stopAll() }
                     PairingFlow.shared.cancel()
                     statusPiP.setTaskRunning(false)
                     model.setProtectedDataAvailable(false)
