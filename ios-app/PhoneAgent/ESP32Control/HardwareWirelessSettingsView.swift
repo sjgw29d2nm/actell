@@ -707,7 +707,7 @@ struct HardwareWirelessSettingsView: View {
                 Section("选择你的硬件") {
                     ForEach(bluetooth.devices) { device in
                         Button { bluetooth.connect(device) } label: {
-                            HStack { Text(device.name); Spacer(); Text("\(device.signal) dBm").font(.caption).foregroundStyle(.secondary) }
+                            HStack { Text(device.name); Spacer(); Text(device.signal == 0 ? "信号未测量" : "\(device.signal) dBm").font(.caption).foregroundStyle(.secondary) }
                         }.disabled(!canChangeBluetooth)
                     }
                 }

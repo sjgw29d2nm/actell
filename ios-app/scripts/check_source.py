@@ -50,6 +50,10 @@ assert 'NWParameters(tls: tls, tcp: tcp)' in bridge
 assert 'guard await approve' in tools and 'image = nil' in tools
 assert 'requiresConfirmationEvenWhenAutonomous' not in tools # app-owned gate cannot be waived
 background_plist = plistlib.loads((ROOT / 'PhoneAgent/Info.plist').read_bytes())
+# Arbitrary INFOPLIST_KEY_* settings are not merged into this explicit plist
+# by the device build; the runtime's two capture keys must live in the source.
+assert background_plist['SuibanBroadcastAppGroup'] == '$(BROADCAST_APP_GROUP_IDENTIFIER)'
+assert background_plist['SuibanBroadcastExtensionBundleIdentifier'] == project['targets']['PhoneAgentBroadcast']['settings']['base']['PRODUCT_BUNDLE_IDENTIFIER']
 assert set(background_plist['UIBackgroundModes']) == {'screen-capture', 'processing', 'audio', 'bluetooth-central'}
 assert '随办硬件v1' in background_plist['NSBluetoothAlwaysUsageDescription']
 assert background_plist['BGTaskSchedulerPermittedIdentifiers'] == ['$(PRODUCT_BUNDLE_IDENTIFIER).backgroundRun.*', '$(PRODUCT_BUNDLE_IDENTIFIER).pairing']

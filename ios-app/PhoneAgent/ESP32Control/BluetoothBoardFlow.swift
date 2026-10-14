@@ -250,10 +250,20 @@ struct BluetoothRouterState: Decodable, Sendable {
         connect(BluetoothBoardDevice(id: id, name: peripheral.name ?? "随办硬件v1", signal: 0))
     }
     private func beginScan() {
-        guard scanRequested, selected == nil, manager?.state == .poweredOn else { return }
+        guard scanRequested, selected == nil, let manager, manager.state == .poweredOn else { return }
         peripherals = [:]; devices = []; scanning = true
         message = "正在查找附近的随办板子"
-        manager?.scanForPeripherals(withServices: [Self.service], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+        // A system AssistiveTouch connection may stop the board advertising.
+        // Retrieve only our custom service; the user still selects and verifies it.
+        for peripheral in manager.retrieveConnectedPeripherals(withServices: [Self.service]) {
+            guard peripherals.count < 16 || peripherals[peripheral.identifier] != nil else { continue }
+            peripherals[peripheral.identifier] = peripheral
+            let device = BluetoothBoardDevice(id: peripheral.identifier,
+                name: String((peripheral.name ?? "随办板子").prefix(40)), signal: 0)
+            devices.removeAll { $0.id == device.id }; devices.append(device)
+        }
+        devices.sort { $0.signal > $1.signal }
+        manager.scanForPeripherals(withServices: [Self.service], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
         scanTimer?.cancel()
         scanTimer = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(20)) } catch { return }

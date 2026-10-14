@@ -83,6 +83,19 @@ enum BluetoothHIDWire {
     private var heartbeat: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
     private var stopping = false
+    private var inputReservation: UUID?
+    #if DEBUG
+    private var diagnosticLines: [String] = []
+    #endif
+    private func recordDiagnostic(_ line: String) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("--hardware-hid-verification") else { return }
+        diagnosticLines.append(Date().ISO8601Format() + " " + line)
+        if diagnosticLines.count > 240 { diagnosticLines.removeFirst(diagnosticLines.count - 240) }
+        let url = URL.documentsDirectory.appending(path: "hardware-hid-verification.log")
+        try? Data((diagnosticLines.joined(separator: "\n") + "\n").utf8).write(to: url, options: [.atomic, .completeFileProtection])
+        #endif
+    }
 
     func bind(_ peer: CBPeripheral, command: CBCharacteristic?, response: CBCharacteristic?) {
         invalidate("正在发现蓝牙输入服务")
@@ -98,7 +111,7 @@ enum BluetoothHIDWire {
         epoch = UUID(); heartbeat?.cancel(); heartbeat = nil; stopTask?.cancel(); stopTask = nil
         requestTimer?.cancel(); requestTimer = nil; readTimer?.cancel(); readTimer = nil
         let commandWaiter = pending, readWaiter = pendingRead
-        pending = nil; pendingRead = nil; pendingReadID = nil; session = nil; stopping = false
+        pending = nil; pendingRead = nil; pendingReadID = nil; session = nil; stopping = false; inputReservation = nil
         supported = false; inputActive = false; peripheral = nil; command = nil; response = nil
         nonce = nil; highestID = 0; boardID = ""; status = message
         commandWaiter?.continuation.resume(throwing: AppError.unknownOutcome)
@@ -107,11 +120,18 @@ enum BluetoothHIDWire {
     }
     func notificationChanged(_ peer: CBPeripheral, characteristic: CBCharacteristic, error: Error?) -> Bool {
         guard peer === peripheral, characteristic === response else { return false }
+        let detail: String
+        if let error {
+            let failure = error as NSError
+            detail = failure.domain + " " + String(failure.code)
+        } else { detail = "none" }
+        recordDiagnostic("ack.subscription notifying=\(characteristic.isNotifying) error=\(detail)")
         if error != nil || !characteristic.isNotifying { failConnection("无法订阅蓝牙输入回执") }
         return true
     }
     func writeCompleted(_ peer: CBPeripheral, characteristic: CBCharacteristic, error: Error?) -> Bool {
         guard peer === peripheral, characteristic === command else { return false }
+        if let error { recordDiagnostic("att.write.error domain=\((error as NSError).domain) code=\((error as NSError).code)") }
         // A write acknowledgement alone does not confirm execution.
         if error != nil { failConnection("蓝牙输入写入结果未确认，已停止；不会自动重发") }
         return true
@@ -119,18 +139,21 @@ enum BluetoothHIDWire {
     func valueUpdated(_ peer: CBPeripheral, characteristic: CBCharacteristic, error: Error?) -> Bool {
         guard peer === peripheral, characteristic === response else { return false }
         guard error == nil, let data = characteristic.value else {
+            if let error { recordDiagnostic("att.read.error domain=\((error as NSError).domain) code=\((error as NSError).code)") }
             failConnection("蓝牙输入回应未确认，已停止"); return true
         }
         do {
             switch try BluetoothHIDWire.parseReply(data) {
             case .ready(let state):
                 guard let waiter = pendingRead else { return true }
+                recordDiagnostic("BH1 READY state=\(state.state) id=\(state.highestID) lease_ms=\(state.leaseMS)")
                 readTimer?.cancel(); readTimer = nil; pendingRead = nil; pendingReadID = nil
                 nonce = state.nonce; highestID = state.highestID
                 onBusyChanged?(); waiter.resume(returning: state)
             case .receipt(let receipt):
                 guard let pending, receipt.nonce == nonce, receipt.id == pending.id,
                       receipt.owner == pending.owner else { return true }
+                recordDiagnostic("BH1 ACK id=\(receipt.id) verb=\(pending.verb) phase=\(receipt.phase) code=\(receipt.code)")
                 if receipt.phase == "accepted", receipt.code == "ok",
                    !["BEGIN", "PING"].contains(pending.verb) { return true }
                 let expected = pending.verb == "STOP" ? "neutral_sent" :
@@ -158,6 +181,7 @@ enum BluetoothHIDWire {
         }
     }
     private func failConnection(_ message: String) {
+        recordDiagnostic("connection.failed \(message)")
         invalidate(message)
         // Retire the app transport. The board's lease releases a system-held
         // HID connection even when CoreBluetooth cancellation is not the last user.
@@ -225,6 +249,9 @@ enum BluetoothHIDWire {
         try requireSession(lease)
         guard (-127...127).contains(dx), (-127...127).contains(dy),
               (-127...127).contains(wheel), (0...7).contains(buttons) else { throw AppError.invalid("蓝牙鼠标报告越界") }
+        guard inputReservation == nil else { throw AppError.unavailable("已有蓝牙输入正在等待确认") }
+        let reservation = UUID(); inputReservation = reservation
+        defer { if inputReservation == reservation { inputReservation = nil } }
         do {
             try await waitForHeartbeat(lease)
             try await request("MOUSE \(dx) \(dy) \(wheel) \(buttons)", session: lease)
@@ -235,6 +262,9 @@ enum BluetoothHIDWire {
         guard (0...255).contains(modifiers), keys.count <= 6,
               keys.allSatisfy({ $0 == 0 || (4...223).contains($0) }),
               Set(keys.filter { $0 != 0 }).count == keys.filter({ $0 != 0 }).count else { throw AppError.invalid("蓝牙键盘报告无效") }
+        guard inputReservation == nil else { throw AppError.unavailable("已有蓝牙输入正在等待确认") }
+        let reservation = UUID(); inputReservation = reservation
+        defer { if inputReservation == reservation { inputReservation = nil } }
         let padded = keys + Array(repeating: 0, count: 6 - keys.count)
         do {
             try await waitForHeartbeat(lease)
@@ -262,6 +292,7 @@ enum BluetoothHIDWire {
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
+                recordDiagnostic("BH1 WRITE id=\(id) verb=\(verb) bytes=\(bytes.count) max_write=\(peripheral.maximumWriteValueLength(for: .withResponse))")
                 pending = Pending(id: id, owner: lease.owner, verb: verb, continuation: continuation); onBusyChanged?()
                 requestTimer = Task { [weak self] in
                     do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
@@ -283,7 +314,7 @@ enum BluetoothHIDWire {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
                 guard let self, self.session == lease, !self.stopping else { return }
-                if self.hasPendingCommand { continue }
+                if self.hasPendingCommand || self.inputReservation != nil { continue }
                 do { try await self.request("PING", session: lease) }
                 catch {
                     guard !Task.isCancelled, self.session == lease, !self.stopping else { return }
@@ -303,6 +334,7 @@ enum BluetoothHIDWire {
     }
     private func performStop(_ lease: BluetoothHIDSession) async {
         guard session == lease, epoch == lease.connection, !stopping else { return }
+        recordDiagnostic("input.stop requested")
         stopping = true; inputActive = false; heartbeat?.cancel(); heartbeat = nil
         finishRequest(.failure(AppError.unknownOutcome))
         do {

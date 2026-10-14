@@ -226,9 +226,10 @@ static int accept(const bh_command *command) {
         else {gate_held=true;memcpy(owner,command->owner,sizeof owner);mode=ACTIVE;lease_until=now_ms()+BH_LEASE_MS;}
     } else if(!owner[0]||strcmp(owner,command->owner))refusal=OWNER;
     else if(mode!=ACTIVE)refusal=BUSY;
+    else if(now_ms()>=lease_until){release(LEASE);refusal=LEASE;}
     else if(command->kind==PING)lease_until=now_ms()+BH_LEASE_MS;
     else if(queue_count>=BH_QUEUE)refusal=QUEUE_FULL;
-    else {queue[(queue_head+queue_count)%BH_QUEUE]=(uint8_t)index;queue_count++;}
+    else {queue[(queue_head+queue_count)%BH_QUEUE]=(uint8_t)index;queue_count++;lease_until=now_ms()+BH_LEASE_MS;}
     if(refusal!=OK)finish(receipt,REJECTED,refusal);
     else ack(command,ACCEPTED,OK);
     return 0;

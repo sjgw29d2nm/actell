@@ -22,6 +22,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>SuibanBroadcastAppGroup</key>
+	<string>$(BROADCAST_APP_GROUP_IDENTIFIER)</string>
+	<key>SuibanBroadcastExtensionBundleIdentifier</key>
+	<string>com.ja1chen.PhoneAgent.BroadcastUpload</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_remotepairing-pairable-host._tcp</string>

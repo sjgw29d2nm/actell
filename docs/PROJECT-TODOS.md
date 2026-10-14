@@ -598,3 +598,20 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 硬件页顶部新增 USB 有线说明，唯一手机操控连接区移到顶部，实际通道只在 `ready` 后显示；蓝牙与 Wi-Fi 保持同一个可选无线配置页面。没有新增连接偏好或改变传输选择、会话锁与断线停止行为。
 - 用户确认当前使用苹果充电线，前次实机型号为 Lightning 接口 iPhone 12 Pro Max。普通 Lightning 充电线不能代替 USB 外设转换器；App 增加相机转换器、原生 USB／OTG 口、辅助供电及识别以太网后的固定地址说明。参考 [Apple USB-A 相机转换器](https://support.apple.com/zh-cn/111811)。这是接线要求核对，尚未用合适转换器确认当前手机能够枚举本板或执行任务；亮灯本身也不是 USB 操控验收。
 - 相关 source/project 检查 91 Swift 文件通过，3 个改动 Swift 文件 `swiftc -frontend -parse` 与 `git diff --check` 通过；这些不代表 iPhoneOS SDK 类型检查或真机 UI 验收。新入口尚未构建或安装，手机现装仍为 1.6／7cef192。此轮未烧录固件、改供电或关闭 Wi-Fi。
+
+### 2026-10-14 · BLE 键鼠输入原型与 App 1.7 设备交付
+
+- 用户授权编写并联调纯蓝牙输入。新增标准 HOGP 键盘／相对鼠标以及自定义 `.107` 命令、`.108` READY/ACK；复用现有 ESP-IDF `bt` 内置 NimBLE HID，不新增生产依赖。原 USB、SB1 诊断与 Wi-Fi 模块保留，完整替代的删除条件尚未满足。
+- BH1 指令使用连接 nonce、独立 owner、单调 UInt32 ID 和 32 项回执记录，未知结果不重发。750ms 有限租约、250ms App 保活，与 USB/AP/STA 复用独占门；STOP 取消排队输入并发送键鼠 neutral，无法确认释放时保留占用直到实际断链。BEGIN 要求当前加密与 bond、实际 ATT MTU≥163、系统键盘／鼠标和 App ACK 三项通知订阅。
+- 新原生「蓝牙键鼠」入口及随办自身输入测试页：目标按钮实际事件计数、相对移动、滚轮、英文 `suiban123` 和显式中文剪贴板粘贴。离开前台或退出即停止。`reports_sent` 只证明 SDK 通知发送完成，不代表文字或点击已生效；尚未开放模型绝对点击／拖动或新增 BLE AI 主路由。
+- 新 ReplayKit Broadcast Upload 扩展与单份最新帧存储基础，用户通过系统广播按钮确认。默认主 App 不增加 App Group 权限，缺扩展或自身共享组授权就显示不可用；不使用其他 App 的共享组和配对数据。当前提供的描述文件仅覆盖主 App，不能签名此广播扩展或授权拟定自身 App Group，因此 1.7 安装包移除扩展，iOS 26.5 跨 App 采集和完整 AI 执行尚不可用。
+- 相关检查原文：`BH1 private state checks: 396 passed (real source; stubbed SDK only)`，包含持续保活账本轮转、重复指令不重放、初始未订阅、STOP/晚到 TX、租约及共享门；使用 ASan/UBSan。App source/project 95 个 Swift 文件通过、改动 Swift 语法检查通过、HID transport 主机类型检查和 wire 8 合法／12 非法样例通过。ReplayKit store Swift 6 主机类型检查通过；这些主机检查不代替真机验收。
+- 源码 `5ff4994b3c5a2168fcf146efe323097b2c5a54c7` 的 [iPhoneOS SDK 构建 38497737627](https://github.com/sjgw29d2nm/actell/actions/runs/38497737627) 成功，原文 `2026-10-14T01:53:18.0453110Z ** BUILD SUCCEEDED **`。产物 `11864930775`，下载归档 SHA256 `ff64d31e5a698007c098d33f7ecb6023cb6a47a7f32265708189e347d7885c4c`。`build_only` 未运行 XCTest／模拟器／UI 测试。
+- 指定 ESP32-S3 固件 SDK 构建成功，App `1016640` bytes、SHA256 `9ba314d3f4dc8a03415ba301428fa82a0325a67db35218ab774313a7ba2df8bf`，原 1MiB 分区剩 `31936` bytes。核对编程串口 USB 身份与板子 MAC 后写入 bootloader、原分区表和 App，并逐区域验证；没有覆盖 NVS/eFuse。启动日志确认 `suiban_ble: advertising Suiban-v1`，本次采样没有主动请求 reset，但采到 `rst:0x1 (POWERON)`，不能声称串口读取未造成重启。
+- App 1.7 已本机严格签名验证并在指定 iPhone 12 Pro Max／iOS 26.5 上通过 USB 更新，原文 `100% Complete`、`Installation succeed.`；查询来源为上述提交，启动成功。更新前后完整智谱供应商配置／钥匙串引用一致，随办自身 647 bytes 配对身份逐字节一致；密钥未打入本轮更新包或上传。
+- 用户已开启辅助触控并确认系统蓝牙发现／连接板子。App 真机探针原文：`1.094 connect.verified_board_id_match`、`1.282 hid.firmware.capability supported=true`、`1.284 probe.end bluetooth_connected=true`；只读取配置，未改变手机网络。实际截图确认新入口和已连接状态。此处尚不能证明 BEGIN 成功、HID 系统订阅、实际键鼠输入和停止释放，测试正在等待用户保持手机解锁并操作自身验收页。
+- 构建产物复核确认广播扩展已编译并嵌入 unsigned App，安装前因签名不足移除；未发现 CI 打包遗漏。发现显式主 Info.plist 不会自动纳入两项任意 `INFOPLIST_KEY_*` 配置，已补入自身共享组／扩展 ID 的源字段与静态断言，默认权限仍未扩展。相关 source/project 95 个文件与 plist 检查通过；此补丁产物字段待新 SDK 构建核对。隔离 QA venv 安装仓库已固定的 `tree-sitter==0.25.2`、`tree-sitter-swift==0.7.4`、`PyYAML==6.0.2`，无新增生产依赖。
+- 1.7 真机英文测试截图实际出现部分 `sui ba` 和中文拼音候选，错误原文「动作结果未知；未自动重发。」。中文粘贴后新截图完整显示「随办蓝牙测试」及「编辑框实际收到完整中文测试串。」：这证明自身页面实际输入，不是仅 ACK；英文输入法未切换与连续输入中断仍分别待验收。
+- 相关时序复核发现：旧固件只由 BEGIN/PING 续 750ms 租约，App 心跳遇 KEY pending 跳过，连续 KEY 能跨过 deadline。最小修复为正确 owner、尚未过期且被成功接受的新 KEY/MOUSE 同样续租；重复／拒绝／STOP 不续，过期 PING/KEY/MOUSE 即使 timer 尚未执行也无法复活。App 用局部 UUID 保护输入等待阶段，心跳不插入该阶段，旧清理不影响新会话。显式 DEBUG 验收日志仅记录阶段、ID、verb、公开错误码、长度与 ATT 错误，不记录 nonce／owner／按键／文本。该时序缺陷已由相关主机检查复现，是否为 1.7 首次失败实机根因仍需新回执日志确认。
+- 系统 HID 配对后硬件可能已被系统连接并停止广播；App 新增从系统已连接、提供随办专用服务的 peripherals 合并设备列表，仍需手动选择及原身份／PING 校验，不泛扫其他键鼠。未测 RSSI 仅显示「信号未测量」。
+- 修复后的固件相关 ASan/UBSan 检查原文 `BH1 private state checks: 557 passed (real source; stubbed SDK only)`；最终增量 SDK 成功，App `1016720` bytes、SHA256 `f2fb254917a19a9c33c25d9d80a13551cc3628c4ed5b34c021aefa57726456f4`，原分区剩 `31856` bytes，分区表仍不变。候选尚未刷写，App 修补尚待 SDK 构建与 1.8 真机更新；不将 1.7 部分输入记为完整键鼠／停止释放验收。
