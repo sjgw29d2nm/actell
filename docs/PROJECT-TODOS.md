@@ -688,3 +688,11 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 专用 `AppError.deviceConnectionFailed` 只标记已确认的连接失败，设备工具据此结束本轮并释放；参数错误、普通临时不可用和未知动作仍保持既有处理。结束页优先显示首条连接失败并标为 blocked，避免同批未执行工具遮盖原因，不额外请求模型生成失败说明。USB 接口缺失且蓝牙已连接时，明确提示当前 AI 操控未接入蓝牙，停止反复尝试；没有自动切换通道。
 - 新增针对性回归覆盖，不删除原协议／停止释放／普通聊天／慢连接测试。候选源码检查与实际 SDK 构建分别记录；当前手机仍是 1.12，新诊断及快速失败修复尚未安装，完整 BLE AI 截图／执行链路仍未完成。
 - 提交 `673a1edc64cc9be013b0f8a200bb82009653b79a` 的 [原生检查 38519399449](https://github.com/sjgw29d2nm/actell/actions/runs/38519399449) 已通过 Source／project／USB wire、USB 协议回环及 iPhoneOS App 构建，产物 `11873581547` 已上传；原生模拟器 core／UI 回归仍在运行，不声明完整 CI 通过。直接提取生产 `prepareConnection`／fence／check 的 Swift/Foundation harness 九场景编译和运行通过，异步 20ms 失败实测 `51.887ms`、只尝试一次，同代三次观察共 `0.112ms` 且不重连；该结果不是实际手机任务耗时。记录 `.build/ncm-fast-failure-check/run.log`／`manifest.json`，手机仍未更新。
+
+### 2026-10-14 · 1.13 实机快速失败与蓝牙状态确认
+
+- 用户重新打开手机后，保留数据 USB 更新至 `1.13`，安装查询确认来源 `673a1edc64cc9be013b0f8a200bb82009653b79a`，启动成功。更新后智谱完整配置／Keychain 引用与此前本轮基线一致，647 bytes 随办自身配对身份保持一致；未刷写固件、清除蓝牙配对或修改系统输入法。
+- 显式真实模型诊断复测备忘录绘图目标，使用当前智谱 `glm-5.3-flash`。原文 `21.875 tool step=5 name=screenshot state=requested`、`22.415 tool step=5 name=screenshot state=failed public_error=未检测到硬件 USB 连接，请检查接线`、`22.418 probe.end phase=blocked release_confirmed=true`。全轮约 22.4 秒，首个设备工具约 0.54 秒后确认失败，没有再请求设备工具或模型重试；与先前 97.86 秒、三次 20 秒连接等待分别记录。模型前置请求仍耗时，未把快速失败当成任务成功，未执行备忘录或绘图。
+- 用户随后报告搜不到蓝牙。Mac 仍识别板子编程接口；未打开串口或重启板子，直接在 1.13 用保存的外围设备连接并核对指定硬件身份，仅发送 PING。实际原文 `1.110 connect.verified_board_id_match`、`1.189 ping.verified`、`1.203 hid.firmware.capability supported=true`、`1.206 probe.end bluetooth_connected=true`，确认该时刻板子蓝牙通信正常。固件只允许一个物理连接，成功连接后停止广播；这是已连接时扫描不可见的可能解释，不能据此宣称已复现所有查找失败。
+- 按用户要求再次抓取 14:41 手机截图，当前任务「查询 App」结果原文：`蓝牙硬件已连接，但当前版本的 AI 手机操控尚未接入蓝牙；未检测到可用的 USB 操控连接。本轮停止，请勿反复重试。` 这证明当前任务失败来自尚未接入 BLE 的 AI 主链，不能归因于板子蓝牙失效；需要补齐生产 BLE 任务执行及屏幕采集，现有键鼠验收不能代替完整任务。
+- 本地证据 `.build/task-fast-failure-acceptance-20261014/live-task-verification.log`、`app113-bluetooth-current.log`、`after-configuration-check.json`、`user-error-current.png`。手机画面／用户历史不上传。此轮没有新增生产代码；原生 core／UI 回归仍在运行，没有完整 CI 通过声明。
