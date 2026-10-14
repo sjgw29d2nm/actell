@@ -615,3 +615,22 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 相关时序复核发现：旧固件只由 BEGIN/PING 续 750ms 租约，App 心跳遇 KEY pending 跳过，连续 KEY 能跨过 deadline。最小修复为正确 owner、尚未过期且被成功接受的新 KEY/MOUSE 同样续租；重复／拒绝／STOP 不续，过期 PING/KEY/MOUSE 即使 timer 尚未执行也无法复活。App 用局部 UUID 保护输入等待阶段，心跳不插入该阶段，旧清理不影响新会话。显式 DEBUG 验收日志仅记录阶段、ID、verb、公开错误码、长度与 ATT 错误，不记录 nonce／owner／按键／文本。该时序缺陷已由相关主机检查复现，是否为 1.7 首次失败实机根因仍需新回执日志确认。
 - 系统 HID 配对后硬件可能已被系统连接并停止广播；App 新增从系统已连接、提供随办专用服务的 peripherals 合并设备列表，仍需手动选择及原身份／PING 校验，不泛扫其他键鼠。未测 RSSI 仅显示「信号未测量」。
 - 修复后的固件相关 ASan/UBSan 检查原文 `BH1 private state checks: 557 passed (real source; stubbed SDK only)`；最终增量 SDK 成功，App `1016720` bytes、SHA256 `f2fb254917a19a9c33c25d9d80a13551cc3628c4ed5b34c021aefa57726456f4`，原分区剩 `31856` bytes，分区表仍不变。候选尚未刷写，App 修补尚待 SDK 构建与 1.8 真机更新；不将 1.7 部分输入记为完整键鼠／停止释放验收。
+
+### 2026-10-14 · 1caeeeb 构建、固件修复与 App 1.8 更新
+
+- 本轮修补已提交并推送 `1caeeeb6a387e574b6eb3b3d83afcd126670eaf3`。[iPhoneOS SDK 构建 38499939819](https://github.com/sjgw29d2nm/actell/actions/runs/38499939819) 成功，原文 `2026-10-14T02:17:23.6061630Z ** BUILD SUCCEEDED **`，仍为 `build_only`。产物 `11865492482`，下载归档 SHA256 `ccbaf267cfc36bcbd50e1c85bd63fcaa4086a4436b91bd7a7f9e46e9c3ee7c49`；主 Info 的自身共享组／广播扩展 ID 已在真实产物核对。
+- 新固件复制为固定候选后刷写：先核对目标 USB 身份、板子 MAC 和 16MB，再验证原 bootloader／分区表，仅写 App `0x10000`，最后全部区域对照校验成功，原文 `Flash write and region verification succeeded`；没有覆盖 NVS/eFuse。App SHA256 对应上述 `f2fb2549…` 候选。
+- App 1.8 本机严格签名校验通过，USB 安装原文 `100% Complete`、`Installation succeed.`；已查询版本／来源并启动。完整智谱 providerProfiles-v1 与密钥引用保持一致，随办自身 647 bytes 身份仍逐字节一致。描述文件不足的两项扩展继续移除，未申请或使用其他 App 的共享组。
+- HID transport 本轮主机类型检查通过，SDK 验证包括实际 DEBUG 脱敏日志。源码检查／固件状态检查与已完成的实际中文输入分别记录；连续按键修复、鼠标实际点击及 STOP 尚在 1.8 真机验收中。
+
+### 2026-10-14 · 用户取消硬件 Wi-Fi 方案
+
+- 用户最新明确「已经不再考虑 Wi-Fi 方案，把 Wi-Fi 方案清理」，取代此前「完整纯蓝牙替代后才删除」的条件。清理范围是硬件配网、热点／路由器 relay 及相关 App 页面；手机自身 Wi-Fi／蜂窝网络和外部 VPN 回环所需普通网络功能保留。
+- App 删除硬件 Wi-Fi 配置／配网页面、BLE `.104`～`.106` API／回调、热点及 SSID 定位权限；硬件页保留 USB、纯蓝牙键鼠和最近 20 条脱敏连接记录。设备 UUID／身份仍记忆，旧历史标明旧记录，不读取或擦除旧 Wi-Fi Keychain 凭据。纯蓝牙入口可导航，USB 还原检查占用时提供显式停止入口，实际输入仍受占用门保护。
+- NCM 硬件 transport 只保留 `.usb`，删 `WirelessRelayConfiguration`、无线探测与全部 `ncm_wifi_*` ABI／导出。USB 的 NR1／NL1、VPN 和原授权／会话机制保留，USB 接口识别继续排除手机 Wi-Fi／cellular，防止把路由器的 `.7.2` 当作 USB。
+- 固件删除应用 `wifi_board.c/h`、AP／STA／NW1 无线入口及配网特征，不再启动 Wi-Fi；BLE 保留身份／PING 和 BH1/HOGP。固件链接符号核对无 `esp_wifi_init/start/set_mode`、默认 AP／STA netif 创建与 DHCP server 启动，SDK 内部编译蓝牙依赖库不代表启动 Wi-Fi。
+- 相关检查：NCM Relay 5/5、FFI 8/8、Host 静态库与 C ABI、USB/probe Swift 类型检查通过；实际 Mac 已识别 Wi-Fi 接口用合成 USB 地址验证排除规则通过。App 95 个 source/project 检查和相关 Swift parse 通过；PA3 原 25 项回环测试通过，未删除核心协议／停止／不重放覆盖。
+- 1.8 刷写后探针原文 `25.026 connect.timeout`。有界 UART 启动采样后出现 `rst:0x1 (POWERON)`、`advertising Suiban-v1`、`connection result=0`、`encryption result=0`；看起来与刷写后复位释放时序有关，不能声称最初 `hard_reset` 已证明启动。后续升级工具补受控启动验收，不因串口采样成功而宣称不会重启。
+- 检查同时发现通用门覆盖 NR1/NL1 与 BLE，但 PA3 旧 USB HID 路径尚未接入。当前 NCM 固件 USB HID count=0，未触发真实 PA3 输入；为保证保留 USB 能力与 BLE 互斥，正在补 PA3 自身 owner 门，释放须等待 neutral，未确认释放不交给另一输入方。清理固件最终候选与新 App 尚待此检查闭环、构建、刷写和安装。
+- PA3 互斥补丁已收口：真实开始输入或启动 neutral 前取得同一门；无 owner 的 STOP／关闭不发 USB 报告，输入／释放等待期间持门，确认 neutral 后释放，不能用 USB suspend/offline 提前交给蓝牙。私有 actual-main/BH1/实际门与 motion 联合 ASan/UBSan 检查 103 项通过，原 BH1 571 项与 PA3 25 项仍通过，原用例未删改；最终增量 SDK 与设备交付待完成。
+- 手动停止 USB 后，本次进程的自动恢复会被抑制，直至用户或明确设备工具重新连接；硬件页不再额外自动恢复。首次系统配对入口补 HID 占用检查，防止从辅助触控返回后又自动验证 USB，反复禁用蓝牙输入按钮。未新增用户配置或修改保存身份。

@@ -16,33 +16,11 @@ import Network
     private var timer: Task<Void, Never>?
     public init() {}
 
-    /// IPv4 on the actual Wi-Fi interface, independent of the default route.
-    /// Invalid or multiple Wi-Fi bindings are errors, never permission to join another network.
-    public static func currentWiFiNetwork() throws -> WiFiNetworkBinding? {
-        try NCMInterfaceBinding.currentWiFiNetwork(NCMInterfaceBinding.inventory())
-    }
-
-    /// Never interpret an IPv6-only Wi-Fi network, policy denial or an unknown
-    /// path as absence of Wi-Fi. No connection or network reconfiguration occurs.
-    public static func hasConnectedWiFi() async throws -> Bool {
-        try Task.checkCancellation()
-        if try currentWiFiNetwork() != nil { return true }
-        return try await WiFiConnectionCheck().check()
-    }
-
-    /// USB wins only when initially selecting a connection attempt. An invalid
-    /// or ambiguous USB interface is an error, never permission to use Wi-Fi.
-    public static func selectHardwareTransport(wifi: WirelessRelayConfiguration?) throws -> HardwareRelayTransport {
-        let rows = try NCMInterfaceBinding.inventory()
-        let usb = try NCMInterfaceBinding.usbCandidates(rows)
-        if !usb.isEmpty {
-            _ = try NCMInterfaceBinding.resolve(usb)
-            return .usb
-        }
-        guard let wifi else { throw NCMError.interfaceUnavailable }
-        let transport = HardwareRelayTransport.wifi(wifi)
-        _ = try NCMInterfaceBinding.resolve(rows, transport: transport)
-        return transport
+    /// Hardware networking is USB only. An invalid or ambiguous interface
+    /// fails closed; the phone's own Wi-Fi/cellular network is never a fallback.
+    public static func selectHardwareTransport() throws -> HardwareRelayTransport {
+        _ = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory())
+        return .usb
     }
 
     public func request(_ command: DiagnosticCommand, transport: HardwareRelayTransport = .usb) async throws -> DiagnosticReply {
@@ -50,21 +28,13 @@ import Network
         try Task.checkCancellation()
         let binding = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory(), transport: transport)
         let connection = NWConnection(host: .ipv4(binding.remoteAddress), port: 28767, using: binding.parameters())
-        let authorization: WirelessRelayConfiguration?
-        if case .wifi(let configuration) = transport { authorization = configuration }
-        else { authorization = nil }
-        return try await exchange(command, connection: connection, authorization: authorization)
+        return try await exchange(command, connection: connection)
     }
     // Internal test seam: the public path always resolves and binds the selected interface.
-    func exchange(_ command: DiagnosticCommand, connection: NWConnection, timeout: Duration = .seconds(7), authorization: WirelessRelayConfiguration? = nil) async throws -> DiagnosticReply {
+    func exchange(_ command: DiagnosticCommand, connection: NWConnection, timeout: Duration = .seconds(7)) async throws -> DiagnosticReply {
         guard pending == nil else { throw NCMError.busy }
         try Task.checkCancellation()
-        // No authentication ACK is expected. The hardware forwards the command
-        // after checking this header, then returns the unchanged ND1 reply.
-        var requestBytes = Data()
-        if let authorization { requestBytes.append(contentsOf: "NW1 AUTH \(authorization.relayToken)\n".utf8) }
-        requestBytes.append(contentsOf: command.wire.utf8)
-        let wireBytes = requestBytes
+        let wireBytes = Data(command.wire.utf8)
         let id = UUID()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -125,56 +95,5 @@ import Network
         current.connection.stateUpdateHandler = nil
         current.connection.cancel()
         current.continuation.resume(with: result)
-    }
-}
-
-@MainActor private final class WiFiConnectionCheck {
-    private let monitor = NWPathMonitor(requiredInterfaceType: .wifi)
-    private var continuation: CheckedContinuation<Bool, Error>?
-    private var timer: Task<Void, Never>?
-    private var finished = false
-
-    func check() async throws -> Bool {
-        try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-                self.continuation = continuation
-                monitor.pathUpdateHandler = { [weak self] path in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        switch path.status {
-                        case .satisfied:
-                            self.finish(path.usesInterfaceType(.wifi) ? .success(true) : .failure(NCMError.network))
-                        case .unsatisfied:
-                            // An available Wi-Fi interface or policy denial can
-                            // be an associated IPv6/local-only network. Fail closed.
-                            if path.unsatisfiedReason == .notAvailable,
-                               !path.usesInterfaceType(.wifi),
-                               !path.availableInterfaces.contains(where: { $0.type == .wifi }) {
-                                self.finish(.success(false))
-                            } else { self.finish(.failure(NCMError.network)) }
-                        case .requiresConnection:
-                            self.finish(.failure(NCMError.network))
-                        @unknown default:
-                            self.finish(.failure(NCMError.network))
-                        }
-                    }
-                }
-                timer = Task { @MainActor [weak self] in
-                    do { try await Task.sleep(for: .seconds(3)) } catch { return }
-                    self?.finish(.failure(NCMError.timeout))
-                }
-                monitor.start(queue: .main)
-            }
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.finish(.failure(CancellationError())) }
-        }
-    }
-    private func finish(_ result: Result<Bool, Error>) {
-        guard !finished, let continuation else { return }
-        finished = true; self.continuation = nil
-        timer?.cancel(); timer = nil
-        monitor.pathUpdateHandler = nil; monitor.cancel()
-        continuation.resume(with: result)
     }
 }

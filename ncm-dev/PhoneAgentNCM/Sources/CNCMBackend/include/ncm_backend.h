@@ -58,18 +58,6 @@ uint32_t ncm_backend_abi(void);
 int32_t ncm_pairing_start(uint32_t consent,uint64_t *handle);
 int32_t ncm_pairing_ack(uint64_t handle,uint32_t state);
 int32_t ncm_backend_start(const ncm_config *,const ncm_identity *,uint64_t *handle);
-/* Explicit hotspot path 192.168.8.2 -> 192.168.8.1:28767, bound to the selected
- * interface and local address. Same existing identity/permissions/poll/close.
- * relay_token must be exactly 64 lowercase hex bytes, copied only for this
- * session and cleared when the worker ends. Every new relay stream begins
- * NW1 AUTH then NR1; no extra authentication ACK, default-route or USB fallback.
- * IPv4 values are host integers in address order, e.g. .8.2 = 0xc0a80802. */
-int32_t ncm_wifi_start_configured(uint32_t interface_index,uint32_t generation,uint32_t endpoint_index,uint32_t permissions,uint32_t local_ipv4,uint32_t board_ipv4,ncm_bytes relay_token,const ncm_identity *,uint64_t *handle);
-/* Explicit private LAN variant: canonical distinct RFC1918 unicast endpoints
- * in the same subnet, contiguous /8..30 mask. Mask and IPs use address-order
- * host integers. Same stream authentication, interface pin, permissions/close;
- * no automatic USB/AP/default-route fallback. Old hotspot entry stays fixed. */
-int32_t ncm_wifi_start_configured_v2(uint32_t interface_index,uint32_t generation,uint32_t endpoint_index,uint32_t permissions,uint32_t local_ipv4,uint32_t board_ipv4,uint32_t subnet_mask,ncm_bytes relay_token,const ncm_identity *,uint64_t *handle);
 /* VPN loopback default utun 10.7.1.1 -> 10.7.0.1. No default route fallback.
  * pairing_port must be freshly discovered on this phone. Same permissions/identity. */
 int32_t ncm_local_vpn_start(uint32_t interface_index,uint16_t pairing_port,uint32_t permissions,const ncm_identity *,uint64_t *handle);

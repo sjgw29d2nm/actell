@@ -174,7 +174,7 @@ enum BluetoothHIDWire {
         switch code {
         case "subscriptions": return "请在系统辅助触控中配对随办硬件，等待键盘和鼠标服务就绪"
         case "mtu": return "蓝牙连接参数不足，请重新连接硬件后重试"
-        case "busy": return "硬件正在处理其他连接，请先停止 USB 或 Wi-Fi 操控"
+        case "busy": return "硬件正在处理其他输入，请先停止当前 USB 或蓝牙操控"
         case "lease", "stopped", "session", "owner": return "蓝牙输入会话已失效，本轮停止；请重新连接"
         case "suspended": return "蓝牙键鼠已暂停，请重新连接并确认系统配对"
         default: return "蓝牙输入未完成（\(code)），本轮停止；不会自动重发动作"

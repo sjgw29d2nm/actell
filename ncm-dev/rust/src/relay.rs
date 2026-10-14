@@ -11,7 +11,6 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpSocket,
 };
-use zeroize::Zeroizing;
 
 pub struct RelayConnector {
     interface_index: u32,
@@ -24,7 +23,6 @@ pub struct RelayConnector {
     subnet_mask: Ipv4Addr,
     relay: SocketAddr,
     lockdown: bool,
-    relay_token: Option<Zeroizing<Vec<u8>>>,
 }
 impl RelayConnector {
     pub fn new(interface_index: u32, generation: u32, index: u8) -> io::Result<Self> {
@@ -42,71 +40,7 @@ impl RelayConnector {
             subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
             relay: ([192, 168, 7, 1], 28767).into(),
             lockdown: false,
-            relay_token: None,
         })
-    }
-    /// Separate fixed hotspot subnet. Every stream authenticates to the board
-    /// before NR1; no default route, USB fallback or credential-bearing errors.
-    pub fn new_wifi_configured(
-        interface_index: u32,
-        generation: u32,
-        index: u8,
-        local: Ipv4Addr,
-        board: Ipv4Addr,
-        token: &[u8],
-    ) -> io::Result<Self> {
-        if local != Ipv4Addr::new(192, 168, 8, 2) || board != Ipv4Addr::new(192, 168, 8, 1) {
-            return Err(io::ErrorKind::InvalidInput.into());
-        }
-        Self::new_wifi_configured_v2(
-            interface_index,
-            generation,
-            index,
-            local,
-            board,
-            Ipv4Addr::new(255, 255, 255, 0),
-            token,
-        )
-    }
-    /// A private LAN is selected explicitly by the caller; keep the same
-    /// interface, local address and subnet for every control/tunnel socket.
-    pub fn new_wifi_configured_v2(
-        interface_index: u32,
-        generation: u32,
-        index: u8,
-        local: Ipv4Addr,
-        board: Ipv4Addr,
-        subnet_mask: Ipv4Addr,
-        token: &[u8],
-    ) -> io::Result<Self> {
-        let mask = u32::from(subnet_mask);
-        let prefix = mask.leading_ones();
-        let hosts = !mask;
-        let local_host = u32::from(local) & hosts;
-        let board_host = u32::from(board) & hosts;
-        if !(8..=30).contains(&prefix)
-            || mask != u32::MAX << (32 - prefix)
-            || !local.is_private()
-            || !board.is_private()
-            || local == board
-            || u32::from(local) & mask != u32::from(board) & mask
-            || local_host == 0
-            || local_host == hosts
-            || board_host == 0
-            || board_host == hosts
-            || token.len() != 64
-            || !token
-                .iter()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
-        {
-            return Err(io::ErrorKind::InvalidInput.into());
-        }
-        let mut connector = Self::new(interface_index, generation, index)?;
-        connector.local = local;
-        connector.subnet_mask = subnet_mask;
-        connector.relay = (board, 28767).into();
-        connector.relay_token = Some(Zeroizing::new(token.to_vec()));
-        Ok(connector)
     }
     /// Fixed peer .2:62078 through NL1, independent of RP discovery/identity.
     pub fn new_lockdown(interface_index: u32) -> io::Result<Self> {
@@ -127,7 +61,6 @@ impl RelayConnector {
             subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
             relay: (Ipv4Addr::LOCALHOST, port).into(),
             lockdown: false,
-            relay_token: None,
         }
     }
     async fn open(&self, purpose: Purpose) -> io::Result<Stream> {
@@ -171,11 +104,6 @@ impl RelayConnector {
         }
         stream.set_nodelay(true)?;
         tokio::time::timeout(Duration::from_secs(4), async {
-            if let Some(token) = &self.relay_token {
-                stream.write_all(b"NW1 AUTH ").await?;
-                stream.write_all(token.as_slice()).await?;
-                stream.write_all(b"\n").await?;
-            }
             stream.write_all(line.as_bytes()).await?;
             let mut reply = Vec::new();
             while reply.len() < 64 {
@@ -216,7 +144,7 @@ fn bind_interface(
     use std::os::fd::AsRawFd;
     // Explicit Darwin socket binding. Never fall back if permission/interface
     // validation fails. Swift independently validates the selected link type
-    // and exact USB/hotspot local address before entering this backend.
+    // and exact USB local address before entering this backend.
     let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
     if unsafe { libc::getifaddrs(&mut head) } != 0 {
         return Err(io::Error::last_os_error());
@@ -280,189 +208,49 @@ mod tests {
     use super::*;
     use tokio::net::TcpListener;
     #[test]
-    fn dynamic_wifi_requires_distinct_private_hosts_and_contiguous_same_subnet() {
-        let token = [b'a'; 64];
-        for (local, board, mask) in [
-            ([192, 168, 1, 20], [192, 168, 1, 30], [255, 255, 255, 0]),
-            ([192, 168, 7, 2], [192, 168, 7, 3], [255, 255, 255, 0]),
-            ([172, 31, 254, 2], [172, 31, 254, 1], [255, 255, 255, 0]),
-            ([10, 42, 3, 2], [10, 42, 3, 1], [255, 0, 0, 0]),
-            ([10, 0, 0, 1], [10, 0, 0, 2], [255, 255, 255, 252]),
-        ] {
-            let connector = RelayConnector::new_wifi_configured_v2(
-                77,
-                7,
-                0,
-                local.into(),
-                board.into(),
-                mask.into(),
-                &token,
-            )
-            .unwrap();
-            assert_eq!(connector.local.octets(), local);
-            assert_eq!(connector.relay.ip(), Ipv4Addr::from(board));
-            assert_eq!(connector.subnet_mask.octets(), mask);
-        }
-        for (local, board, mask) in [
-            ([192, 168, 1, 20], [192, 168, 2, 30], [255, 255, 255, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 20], [255, 255, 255, 0]),
-            ([192, 168, 1, 0], [192, 168, 1, 30], [255, 255, 255, 0]),
-            ([192, 168, 1, 255], [192, 168, 1, 30], [255, 255, 255, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 0], [255, 255, 255, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 255], [255, 255, 255, 0]),
-            ([172, 32, 1, 20], [172, 32, 1, 30], [255, 255, 255, 0]),
-            ([8, 8, 8, 1], [8, 8, 8, 2], [255, 255, 255, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 30], [255, 0, 255, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 30], [0, 0, 0, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 30], [254, 0, 0, 0]),
-            ([192, 168, 1, 20], [192, 168, 1, 21], [255, 255, 255, 254]),
-            ([192, 168, 1, 20], [192, 168, 1, 30], [255, 255, 255, 255]),
-        ] {
-            assert!(
-                RelayConnector::new_wifi_configured_v2(
-                    77,
-                    7,
-                    0,
-                    local.into(),
-                    board.into(),
-                    mask.into(),
-                    &token
-                )
-                .is_err()
-            );
-        }
-    }
-    #[test]
-    fn wifi_configuration_rejects_usb_subnet_and_invalid_credentials() {
-        let local = Ipv4Addr::new(192, 168, 8, 2);
-        let board = Ipv4Addr::new(192, 168, 8, 1);
-        let token = [b'a'; 64]; // Public synthetic relay credential only.
-        let connector =
-            RelayConnector::new_wifi_configured(77, 7, 0, local, board, &token).unwrap();
-        assert_eq!(connector.local, local);
-        assert_eq!(connector.relay, (board, 28767).into());
-        assert!(RelayConnector::new_wifi_configured(0, 7, 0, local, board, &token).is_err());
-        assert!(RelayConnector::new_wifi_configured(77, 0, 0, local, board, &token).is_err());
-        assert!(RelayConnector::new_wifi_configured(77, 7, 16, local, board, &token).is_err());
-        assert!(
-            RelayConnector::new_wifi_configured(
-                77,
-                7,
-                0,
-                Ipv4Addr::new(192, 168, 7, 2),
-                board,
-                &token
-            )
-            .is_err()
-        );
-        assert!(
-            RelayConnector::new_wifi_configured(
-                77,
-                7,
-                0,
-                local,
-                Ipv4Addr::new(192, 168, 7, 1),
-                &token
-            )
-            .is_err()
-        );
-        for invalid in [
-            vec![b'a'; 63],
-            vec![b'a'; 65],
-            vec![b'A'; 64],
-            vec![b'g'; 64],
-            vec![b'\n'; 64],
-        ] {
-            assert!(RelayConnector::new_wifi_configured(77, 7, 0, local, board, &invalid).is_err());
-        }
-        let usb = RelayConnector::new(77, 7, 0).unwrap();
-        assert!(usb.relay_token.is_none());
-        assert_eq!(usb.local, Ipv4Addr::new(192, 168, 7, 2));
+    fn usb_configuration_keeps_fixed_binding_and_requires_current_catalog() {
+        let connector = RelayConnector::new(77, 7, 0).unwrap();
+        assert_eq!(connector.local, Ipv4Addr::new(192, 168, 7, 2));
+        assert_eq!(connector.subnet_mask, Ipv4Addr::new(255, 255, 255, 0));
+        assert_eq!(connector.relay, ([192, 168, 7, 1], 28767).into());
+        assert!(RelayConnector::new(0, 7, 0).is_err());
+        assert!(RelayConnector::new(77, 0, 0).is_err());
+        assert!(RelayConnector::new(77, 7, 16).is_err());
     }
     #[tokio::test]
-    async fn wifi_authenticates_both_streams_without_extra_ack_or_replay() {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let mut connector = RelayConnector::loopback(listener.local_addr().unwrap().port());
-        connector.relay_token = Some(Zeroizing::new(vec![b'a'; 64]));
-        let mock = tokio::spawn(async move {
-            let mut nonce = String::new();
-            for kind in 0..2 {
-                let (mut peer, _) = listener.accept().await.unwrap();
-                let mut auth = vec![0; 74];
-                peer.read_exact(&mut auth).await.unwrap();
-                assert_eq!(&auth[..9], b"NW1 AUTH ");
-                assert!(auth[9..73].iter().all(|b| *b == b'a'));
-                assert_eq!(auth[73], b'\n');
-                let mut line = Vec::new();
-                loop {
-                    let b = peer.read_u8().await.unwrap();
-                    if b == b'\n' {
-                        break;
-                    }
-                    line.push(b);
-                }
-                let text = String::from_utf8(line).unwrap();
-                let parts: Vec<_> = text.split(' ').collect();
-                if kind == 0 {
-                    assert_eq!(&parts[..4], &["NR1", "OPEN", "7", "0"]);
-                    nonce = parts[4].to_owned();
-                } else {
-                    assert_eq!(parts, vec!["NR1", "TUNNEL", nonce.as_str(), "54321"]);
-                }
-                peer.write_all(b"NR1 OK\nNEXT").await.unwrap();
-            }
-        });
-        let mut control = connector.connect(Purpose::PairVerify).await.unwrap();
-        let mut data = [0; 4];
-        control.read_exact(&mut data).await.unwrap();
-        assert_eq!(&data, b"NEXT");
-        let mut tunnel = connector
-            .connect(Purpose::NegotiatedTunnel { port: 54321 })
-            .await
-            .unwrap();
-        tunnel.read_exact(&mut data).await.unwrap();
-        assert_eq!(&data, b"NEXT");
+    async fn missing_usb_interface_fails_without_default_route_or_retry() {
+        let connector = RelayConnector::new(u32::MAX, 7, 0).unwrap();
         assert!(connector.connect(Purpose::PairVerify).await.is_err());
-        assert!(
-            connector
-                .connect(Purpose::NegotiatedTunnel { port: 54321 })
-                .await
-                .is_err()
-        );
-        assert!(connector.connect(Purpose::LockdownSession).await.is_err());
-        mock.await.unwrap();
+        assert!(connector.connect(Purpose::PairVerify).await.is_err());
     }
     #[tokio::test]
-    async fn wifi_auth_rejection_is_redacted_and_does_not_retry() {
+    async fn lockdown_stream_preserves_nl1_framing_and_single_use() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
         let mut connector = RelayConnector::loopback(listener.local_addr().unwrap().port());
-        connector.relay_token = Some(Zeroizing::new(vec![b'a'; 64]));
+        connector.lockdown = true;
         let mock = tokio::spawn(async move {
             let (mut peer, _) = listener.accept().await.unwrap();
-            let mut auth = [0; 74];
-            peer.read_exact(&mut auth).await.unwrap();
-            while peer.read_u8().await.unwrap() != b'\n' {}
-            peer.write_all(b"NW1 ERR\n").await.unwrap();
+            let mut line = Vec::new();
+            loop {
+                let byte = peer.read_u8().await.unwrap();
+                if byte == b'\n' { break; }
+                line.push(byte);
+            }
+            let text = String::from_utf8(line).unwrap();
+            let parts: Vec<_> = text.split(' ').collect();
+            assert_eq!(&parts[..2], &["NL1", "OPEN"]);
+            assert_eq!(parts.len(), 3);
+            assert_eq!(parts[2].len(), 32);
+            peer.write_all(b"NL1 OK\nNEXT").await.unwrap();
         });
-        let error = connector.connect(Purpose::PairVerify).await.err().unwrap();
-        assert_eq!(error.kind(), io::ErrorKind::ConnectionRefused);
-        assert!(!error.to_string().contains("NW1"));
+        let mut stream = connector.connect(Purpose::LockdownSession).await.unwrap();
+        let mut next = [0; 4];
+        stream.read_exact(&mut next).await.unwrap();
+        assert_eq!(&next, b"NEXT");
+        assert!(connector.connect(Purpose::LockdownSession).await.is_err());
         assert!(connector.connect(Purpose::PairVerify).await.is_err());
+        assert!(connector.connect(Purpose::NegotiatedTunnel { port: 54321 }).await.is_err());
         mock.await.unwrap();
-    }
-    #[tokio::test]
-    async fn missing_wifi_interface_fails_without_default_route_or_usb_fallback() {
-        let connector = RelayConnector::new_wifi_configured(
-            u32::MAX,
-            7,
-            0,
-            Ipv4Addr::new(192, 168, 8, 2),
-            Ipv4Addr::new(192, 168, 8, 1),
-            &[b'a'; 64],
-        )
-        .unwrap();
-        assert!(connector.connect(Purpose::PairVerify).await.is_err());
-        assert!(connector.connect(Purpose::PairVerify).await.is_err());
     }
     #[tokio::test]
     async fn exact_two_streams_share_nonce_and_no_extra_bytes_are_consumed() {

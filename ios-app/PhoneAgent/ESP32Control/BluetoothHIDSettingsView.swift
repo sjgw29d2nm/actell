@@ -12,6 +12,15 @@ import UIKit
     @State private var error: String?
     var body: some View {
         Form {
+            if control.running || control.ready || control.agentReserved {
+                Section {
+                    Text("先停止当前手机操控连接，再连接或验收蓝牙输入。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button(control.route == .ncmDeveloper ? "停止 USB 操控连接" : "停止当前手机操控连接", role: .destructive) {
+                        control.cancel()
+                    }
+                } header: { Text("停止当前操控") }
+            }
             Section {
                 Label(bluetooth.connected ? "硬件蓝牙已连接" : "硬件蓝牙未连接", systemImage: "antenna.radiowaves.left.and.right")
                 if bluetooth.connected { LabeledContent("硬件", value: bluetooth.boardName) }
@@ -20,15 +29,15 @@ import UIKit
                     Button(bluetooth.connecting ? "正在连接" : "连接我的硬件") {
                         if bluetooth.rememberedPeripheralID != nil { bluetooth.reconnectRemembered() }
                         else { bluetooth.scan() }
-                    }.disabled(bluetooth.connecting || !control.canChangeRoute || HardwareWiFiFlow.shared.busy)
+                    }.disabled(bluetooth.connecting || !control.canChangeRoute)
                     ForEach(bluetooth.devices) { device in
                         Button(device.name) { bluetooth.connect(device) }
-                            .disabled(bluetooth.connecting || !control.canChangeRoute || HardwareWiFiFlow.shared.busy)
+                            .disabled(bluetooth.connecting || !control.canChangeRoute)
                     }
                 }
                 Text(hid.status).font(.footnote).foregroundStyle(.secondary)
             } header: { Text("蓝牙输入连接") } footer: {
-                Text("App 通过蓝牙给硬件发命令，硬件通过蓝牙键鼠向手机输入；此处无需给硬件配置 Wi-Fi。")
+                Text("App 通过蓝牙给硬件发命令，硬件通过蓝牙键鼠向手机输入。")
             }
             Section {
                 Text("打开系统设置 → 辅助功能 → 触控 → 辅助触控，开启辅助触控，在「设备 → 蓝牙设备」中配对随办硬件。")
@@ -36,10 +45,10 @@ import UIKit
                 Button("开始蓝牙输入验收") {
                     control.cancel()
                     showingTest = true
-                }.disabled(!bluetooth.connected || !hid.supported || !control.canChangeRoute || HardwareWiFiFlow.shared.busy)
+                }.disabled(!bluetooth.connected || !hid.supported || !control.canChangeRoute)
                     .accessibilityIdentifier("openBluetoothHIDVerification")
             } header: { Text("系统键鼠与实际输入") } footer: {
-                Text("开始验收会停止当前 USB／Wi-Fi 操控连接。指令回执只证明报告发送，实际点击和输入要以测试页结果为准。")
+                Text("开始验收会停止当前手机操控连接。指令回执只证明报告发送，实际点击和输入要以测试页结果为准。")
             }
             Section {
                 Text(capture.status).font(.footnote).foregroundStyle(.secondary)

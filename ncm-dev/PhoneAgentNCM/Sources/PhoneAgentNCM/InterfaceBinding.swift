@@ -4,73 +4,10 @@ import Foundation
 import Network
 import Darwin
 
-/// Credentials received from the selected hardware over Bluetooth. Addresses
-/// are pinned to one private LAN or the hardware hotspot, without a default route.
-public struct WirelessRelayConfiguration: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible {
-    public let localAddress: String
-    public let boardAddress: String
-    public let relayToken: String
-    public let subnetMask: String
-    let localIPv4: UInt32
-    let boardIPv4: UInt32
-    let subnetMaskIPv4: UInt32
-
-    public init(localAddress: String, boardAddress: String, relayToken: String, subnetMask: String = "255.255.255.0") throws {
-        let local = try WiFiNetworkBinding(localAddress: localAddress, subnetMask: subnetMask)
-        let board = try WiFiNetworkBinding(localAddress: boardAddress, subnetMask: subnetMask)
-        guard WiFiNetworkBinding.isPrivate(local.ipv4), WiFiNetworkBinding.isPrivate(board.ipv4),
-              local.ipv4 != board.ipv4, local.ipv4 & local.maskIPv4 == board.ipv4 & local.maskIPv4,
-              relayToken.utf8.count == 64,
-              relayToken.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
-            throw NCMError.interfaceInvalid
-        }
-        self.localAddress = localAddress
-        self.boardAddress = boardAddress
-        self.relayToken = relayToken
-        self.subnetMask = subnetMask
-        localIPv4 = local.ipv4; boardIPv4 = board.ipv4; subnetMaskIPv4 = local.maskIPv4
-    }
-    public var description: String { "WirelessRelayConfiguration(localAddress: \(localAddress), boardAddress: \(boardAddress), subnetMask: \(subnetMask), relayToken: [REDACTED])" }
-    public var debugDescription: String { description }
-}
-
-/// An existing Wi-Fi network may use public or link-local IPv4. Detecting it
-/// must still prevent hotspot switching; relay configuration separately requires RFC1918.
-public struct WiFiNetworkBinding: Sendable, Equatable {
-    public let localAddress: String
-    public let subnetMask: String
-    let ipv4: UInt32
-    let maskIPv4: UInt32
-    public init(localAddress: String, subnetMask: String) throws {
-        guard let ip = Self.parseIPv4(localAddress), let mask = Self.parseIPv4(subnetMask),
-              (8...30).contains(mask.nonzeroBitCount),
-              mask.nonzeroBitCount + mask.trailingZeroBitCount == 32,
-              ip >> 24 > 0, ip >> 24 != 127, ip >> 24 < 224,
-              ip & ~mask != 0, ip & ~mask != ~mask else { throw NCMError.interfaceInvalid }
-        self.localAddress = localAddress; self.subnetMask = subnetMask
-        ipv4 = ip; maskIPv4 = mask
-    }
-    static func parseIPv4(_ value: String) -> UInt32? {
-        let pieces = value.split(separator: ".", omittingEmptySubsequences: false)
-        guard pieces.count == 4 else { return nil }
-        var ip: UInt32 = 0
-        for piece in pieces {
-            guard !piece.isEmpty, piece.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let octet = UInt8(piece), String(octet) == piece else { return nil }
-            ip = (ip << 8) | UInt32(octet)
-        }
-        return ip
-    }
-    static func isPrivate(_ ip: UInt32) -> Bool {
-        ip >> 24 == 10 || ip & 0xfff00000 == 0xac100000 || ip >> 16 == 0xc0a8
-    }
-}
-
 /// A connection attempt selects this once; probe and backend calls reuse it.
 /// A disconnected transport fails rather than changing a running session.
 public enum HardwareRelayTransport: Sendable, Equatable {
     case usb
-    case wifi(WirelessRelayConfiguration)
 }
 
 struct NCMInterfaceBinding {
@@ -102,23 +39,6 @@ struct NCMInterfaceBinding {
             throw NCMError.interfaceInvalid
         }
         return row
-    }
-    static func currentWiFiNetwork(_ rows: [Row]) throws -> WiFiNetworkBinding? {
-        var candidates: [WiFiNetworkBinding] = []
-        for row in rows {
-            guard let scoped = IPv4Address("\(row.address)%\(row.name)"), let interface = scoped.interface,
-                  interface.name == row.name, interface.index == Int(row.index) else {
-                throw NCMError.interfaceScopeUnsupported
-            }
-            guard interface.type == .wifi else { continue }
-            let required = UInt32(IFF_UP | IFF_RUNNING | IFF_BROADCAST)
-            let forbidden = UInt32(IFF_LOOPBACK | IFF_POINTOPOINT)
-            guard row.index > 0, row.flags & required == required, row.flags & forbidden == 0,
-                  row.linkType == UInt8(IFT_ETHER) else { throw NCMError.interfaceInvalid }
-            candidates.append(try WiFiNetworkBinding(localAddress: row.address, subnetMask: row.mask))
-        }
-        guard candidates.count <= 1 else { throw NCMError.interfaceAmbiguous }
-        return candidates.first
     }
     /// A router can assign the USB subnet's .2 address to real Wi-Fi. Only
     /// explicitly recognized Wi-Fi/cellular rows are excluded from USB candidates.
@@ -152,33 +72,9 @@ struct NCMInterfaceBinding {
         try validateType(interface.type)
         return NCMInterfaceBinding(row: row, interface: interface, localAddress: local, remoteAddress: remote)
     }
-    static func selectWiFi(_ rows: [Row], configuration: WirelessRelayConfiguration) throws -> Row {
-        let matches = rows.filter { $0.address == configuration.localAddress }
-        guard matches.count == 1, let row = matches.first else {
-            throw matches.isEmpty ? NCMError.interfaceUnavailable : NCMError.interfaceAmbiguous
-        }
-        let required = UInt32(IFF_UP | IFF_RUNNING | IFF_BROADCAST)
-        let forbidden = UInt32(IFF_LOOPBACK | IFF_POINTOPOINT)
-        guard row.index > 0, row.mask == configuration.subnetMask, row.flags & required == required,
-              row.flags & forbidden == 0, row.linkType == UInt8(IFT_ETHER) else {
-            throw NCMError.interfaceInvalid
-        }
-        return row
-    }
     static func resolve(_ rows: [Row], transport: HardwareRelayTransport) throws -> NCMInterfaceBinding {
         switch transport {
-        case .usb:
-            return try resolve(rows)
-        case .wifi(let configuration):
-            let row = try selectWiFi(rows, configuration: configuration)
-            guard let remote = IPv4Address("\(configuration.boardAddress)%\(row.name)"),
-                  let local = IPv4Address("\(configuration.localAddress)%\(row.name)"),
-                  let interface = remote.interface, local.interface == interface,
-                  interface.name == row.name, interface.index == Int(row.index),
-                  interface.type == .wifi else {
-                throw NCMError.interfaceInvalid
-            }
-            return NCMInterfaceBinding(row: row, interface: interface, localAddress: local, remoteAddress: remote)
+        case .usb: return try resolve(rows)
         }
     }
     func parameters() -> NWParameters {

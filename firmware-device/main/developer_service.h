@@ -3,9 +3,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
-/* USB retains its existing protocol; Wi-Fi joins the same owner after NW1 AUTH. */
+/* Developer services are restricted to the directly attached USB NCM link. */
 esp_err_t developer_service_start(bool (*online)(void), uint32_t (*epoch)(void), uint32_t interface_index);
-/* A configuration reservation excludes a new relay OPEN until it completes. */
+/* BLE input and a USB relay share one reservation until their safe release. */
 bool developer_service_busy(void);
-bool developer_service_reserve_wifi_configuration(void);
-void developer_service_release_wifi_configuration(void);
+bool developer_service_reserve_input(void);
+void developer_service_release_input(void);

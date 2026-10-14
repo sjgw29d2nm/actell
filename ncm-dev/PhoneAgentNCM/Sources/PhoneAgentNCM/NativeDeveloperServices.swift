@@ -81,20 +81,12 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
               discovery.endpoints?.contains(where: { $0.index == endpoint.index && $0.family == endpoint.family && $0.port == endpoint.port && $0.service == endpoint.service }) == true else { throw NativeBackendError.invalidCandidate }
         let row = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory(), transport: transport).row
         var config = ncm_config(abi: 1, interface_index: row.index, generation: generation, endpoint_index: UInt32(endpoint.index), permissions: authorization.mask)
-        var values = [identity.signingSeed, Data(identity.controllerID.utf8), Data(identity.peerID.utf8), identity.peerPublicKey,
+        let values = [identity.signingSeed, Data(identity.controllerID.utf8), Data(identity.peerID.utf8), identity.peerPublicKey,
                       identity.alternateIRK, Data(identity.peerUDID.utf8), Data(identity.peerModel.utf8)]
-        if case .wifi(let configuration) = transport { values.append(Data(configuration.relayToken.utf8)) }
         var started: UInt64 = 0
         let code = withSlices(values) { b in
             var raw = ncm_identity(seed: b[0], controller_id: b[1], peer_id: b[2], peer_public_key: b[3], alt_irk: b[4], peer_udid: b[5], peer_model: b[6])
-            switch transport {
-            case .usb:
-                return ncm_backend_start(&config, &raw, &started)
-            case .wifi(let configuration):
-                return ncm_wifi_start_configured_v2(row.index, generation, UInt32(endpoint.index), authorization.mask,
-                                                  configuration.localIPv4, configuration.boardIPv4, configuration.subnetMaskIPv4,
-                                                  b[7], &raw, &started)
-            }
+            return ncm_backend_start(&config, &raw, &started)
         }
         guard code == 0, started != 0 else { throw NativeBackendError.transport(code: code) }
         handle = started

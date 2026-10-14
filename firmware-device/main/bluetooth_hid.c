@@ -127,7 +127,7 @@ static void disconnect_state(void) {
     connection=BLE_HS_CONN_HANDLE_NONE;mode=IDLE;pending_handle=0;pending_receipt=-1;pending_status=INT_MIN;queue_count=0;lease_until=0;
     keyboard_subscribed=mouse_subscribed=ack_subscribed=false;suspended=false;release_requested=OK;
     memset(owner,0,sizeof owner);memset(nonce,0,sizeof nonce);
-    if(gate_held){gate_held=false;developer_service_release_wifi_configuration();}
+    if(gate_held){gate_held=false;developer_service_release_input();}
 }
 static void terminate(void) {
     struct ble_gap_conn_desc descriptor;
@@ -180,7 +180,7 @@ static void tick(struct ble_npl_event *event) {
                 terminate();
                 goto reschedule;
             }
-            if(!gate_held) {if(!developer_service_reserve_wifi_configuration())goto reschedule;gate_held=true;}
+            if(!gate_held) {if(!developer_service_reserve_input())goto reschedule;gate_held=true;}
             if(neutral_stage<2) {
                 const uint8_t neutral[8]={0};bool sent=send_report(neutral_stage?mouse_handle:keyboard_handle,neutral,neutral_stage?4:8,-1);
                 if(!sent)terminate();
@@ -189,7 +189,7 @@ static void tick(struct ble_npl_event *event) {
             for(size_t i=0;i<BH_HISTORY;i++)if(history[i].valid&&history[i].phase==ACCEPTED&&history[i].command.kind==STOP&&!strcmp(history[i].command.owner,owner))finish(&history[i],NEUTRAL_SENT,OK);
             if(owner[0])memcpy(last_owner,owner,sizeof last_owner);
             memset(owner,0,sizeof owner);mode=IDLE;
-            gate_held=false;developer_service_release_wifi_configuration();
+            gate_held=false;developer_service_release_input();
         } else if(mode==ACTIVE&&queue_count&&!pending_handle) {
             uint8_t index=queue[queue_head];queue_head=(queue_head+1)%BH_QUEUE;queue_count--;bh_command *command=&history[index].command;
             uint8_t data[8]={0};uint16_t handle;size_t length;
@@ -222,7 +222,7 @@ static int accept(const bh_command *command) {
     else if(command->kind==BEGIN) {
         if(mode!=IDLE||!strcmp(command->owner,last_owner))refusal=BUSY;
         else if(!keyboard_subscribed||!mouse_subscribed||!ack_subscribed)refusal=SUBSCRIPTIONS;
-        else if(!developer_service_reserve_wifi_configuration())refusal=BUSY;
+        else if(!developer_service_reserve_input())refusal=BUSY;
         else {gate_held=true;memcpy(owner,command->owner,sizeof owner);mode=ACTIVE;lease_until=now_ms()+BH_LEASE_MS;}
     } else if(!owner[0]||strcmp(owner,command->owner))refusal=OWNER;
     else if(mode!=ACTIVE)refusal=BUSY;

@@ -2,7 +2,6 @@
 #include "bluetooth_board.h"
 #include "bluetooth_hid.h"
 #include "usb_device.h"
-#include "wifi_board.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
@@ -28,9 +27,6 @@ static const ble_uuid128_t service_uuid=BOARD_UUID(0x00);
 static const ble_uuid128_t information_uuid=BOARD_UUID(0x01);
 static const ble_uuid128_t command_uuid=BOARD_UUID(0x02);
 static const ble_uuid128_t response_uuid=BOARD_UUID(0x03);
-static const ble_uuid128_t wifi_information_uuid=BOARD_UUID(0x04);
-static const ble_uuid128_t router_configuration_uuid=BOARD_UUID(0x05);
-static const ble_uuid128_t router_information_uuid=BOARD_UUID(0x06);
 static const ble_uuid128_t hid_command_uuid=BOARD_UUID(0x07);
 static const ble_uuid128_t hid_ack_uuid=BOARD_UUID(0x08);
 static const char *TAG="suiban_ble";
@@ -46,37 +42,11 @@ static int access_characteristic(uint16_t connection,uint16_t attribute,
     uintptr_t kind=(uintptr_t)argument;
     if(context->op==BLE_GATT_ACCESS_OP_WRITE_CHR&&kind==7)return bluetooth_hid_access(connection,context,true);
     if(context->op==BLE_GATT_ACCESS_OP_READ_CHR&&kind==8)return bluetooth_hid_access(connection,context,false);
-    if((context->op==BLE_GATT_ACCESS_OP_READ_CHR&&(kind==4||kind==6))||
-       (context->op==BLE_GATT_ACCESS_OP_WRITE_CHR&&kind==5)) {
-        struct ble_gap_conn_desc security;
-        if(ble_gap_conn_find(connection,&security)||!security.sec_state.encrypted) {
-            ESP_LOGI(TAG,"Wi-Fi INFO denied: encrypted connection required");
-            return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
-        }
-        if(!security.sec_state.bonded) {
-            ESP_LOGI(TAG,"Wi-Fi INFO denied: Bluetooth pairing must complete");
-            return BLE_ATT_ERR_INSUFFICIENT_AUTHOR;
-        }
-        char information[513];
-        if(kind==5) {
-            uint16_t length=OS_MBUF_PKTLEN(context->om);
-            if(!length||length>512||ble_hs_mbuf_to_flat(context->om,information,length,NULL)!=0)return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-            esp_err_t result=wifi_board_configure_router(information,length);memset(information,0,sizeof information);
-            return result==ESP_OK?0:result==ESP_ERR_INVALID_STATE?0x80:result==ESP_ERR_INVALID_ARG?BLE_ATT_ERR_VALUE_NOT_ALLOWED:BLE_ATT_ERR_UNLIKELY;
-        }
-        esp_err_t information_status=kind==6?wifi_board_router_information(information,sizeof information):wifi_board_information(information,sizeof information);
-        if(information_status!=ESP_OK) {
-            ESP_LOGW(TAG,"Wi-Fi INFO not ready: %s",esp_err_to_name(information_status));
-            return BLE_ATT_ERR_UNLIKELY;
-        }
-        int result=os_mbuf_append(context->om,information,(uint16_t)strlen(information));
-        memset(information,0,sizeof information);return result==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
-    }
     if (context->op==BLE_GATT_ACCESS_OP_READ_CHR && kind==1) {
         char information[256];
         int length=snprintf(information,sizeof information,
             "{\"version\":1,\"id\":\"%s\",\"name\":\"随办硬件v1\",\"chip\":\"esp32s3\","
-            "\"usb_connected\":%s,\"uptime_ms\":%"PRId64",\"capabilities\":[\"status\",\"ping\",\"wifi_setup\",\"router_setup\",\"ble_hid_v1\"]}",
+            "\"usb_connected\":%s,\"uptime_ms\":%"PRId64",\"capabilities\":[\"status\",\"ping\",\"ble_hid_v1\"]}",
             device_id,usb_online()?"true":"false",esp_timer_get_time()/1000);
         if (length<0 || (size_t)length>=sizeof information) return BLE_ATT_ERR_UNLIKELY;
         return os_mbuf_append(context->om,information,(uint16_t)length)==0?0:BLE_ATT_ERR_INSUFFICIENT_RES;
@@ -105,9 +75,6 @@ static const struct ble_gatt_svc_def services[]={
          {.uuid=&information_uuid.u,.access_cb=access_characteristic,.arg=(void *)1,.flags=BLE_GATT_CHR_F_READ},
          {.uuid=&command_uuid.u,.access_cb=access_characteristic,.arg=(void *)2,.flags=BLE_GATT_CHR_F_WRITE|BLE_GATT_CHR_F_WRITE_ENC},
          {.uuid=&response_uuid.u,.access_cb=access_characteristic,.arg=(void *)3,.val_handle=&response_handle,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_NOTIFY|BLE_GATT_CHR_F_READ_ENC},
-         {.uuid=&wifi_information_uuid.u,.access_cb=access_characteristic,.arg=(void *)4,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_READ_ENC},
-         {.uuid=&router_configuration_uuid.u,.access_cb=access_characteristic,.arg=(void *)5,.flags=BLE_GATT_CHR_F_WRITE|BLE_GATT_CHR_F_WRITE_ENC},
-         {.uuid=&router_information_uuid.u,.access_cb=access_characteristic,.arg=(void *)6,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_READ_ENC},
          {.uuid=&hid_command_uuid.u,.access_cb=access_characteristic,.arg=(void *)7,.flags=BLE_GATT_CHR_F_WRITE|BLE_GATT_CHR_F_WRITE_ENC},
          {.uuid=&hid_ack_uuid.u,.access_cb=access_characteristic,.arg=(void *)8,.val_handle=&bluetooth_hid_ack_handle,.flags=BLE_GATT_CHR_F_READ|BLE_GATT_CHR_F_NOTIFY|BLE_GATT_CHR_F_READ_ENC},
          {0}}},

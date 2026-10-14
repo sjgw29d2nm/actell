@@ -7,7 +7,6 @@ struct SettingsView: View {
     @AppStorage(BackgroundPlaybackMode.defaultsKey) private var backgroundMode = BackgroundPlaybackMode.defaultMode.rawValue
     @AppStorage(BackgroundPlaybackMode.residentDefaultsKey) private var backgroundResident = false
     @State private var control = PairingFlow.shared
-    @ObservedObject private var hardwareWireless = HardwareWiFiFlow.shared
     @State private var clear = false
     @State private var clearAssets = false
     @State private var assetStatus = ""
@@ -88,7 +87,7 @@ struct SettingsView: View {
                     Picker("连接模式", selection: Binding(get: { control.route }, set: { _ = control.selectRoute($0) })) {
                         Text(DeviceControlRoute.vpnLoopback.title).tag(DeviceControlRoute.vpnLoopback)
                         Text(DeviceControlRoute.ncmDeveloper.title).tag(DeviceControlRoute.ncmDeveloper)
-                    }.disabled(model.hasBusySessions || !control.canChangeRoute || hardwareWireless.busy)
+                    }.disabled(model.hasBusySessions || !control.canChangeRoute)
                         .accessibilityIdentifier("deviceControlMode")
                     if control.route == .vpnLoopback {
                         NavigationLink { ESP32ControlSettingsView() } label: {

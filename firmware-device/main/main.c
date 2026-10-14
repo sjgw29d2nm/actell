@@ -1,7 +1,6 @@
 #include "usb_device.h"
 #include "developer_service.h"
 #include "bluetooth_board.h"
-#include "wifi_board.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "lwip/sockets.h"
@@ -20,9 +19,10 @@ static size_t used;
 static pa_ledger ledger;
 static int64_t last_packet,last_ping,action_started;
 static uint32_t action_id,stop_id,cancelled_id,input_generation=1;
+static bool input_reserved;
 static int64_t milliseconds(void) { return esp_timer_get_time()/1000; }
 static void close_client(void) {
-    usb_hid_cancel();
+    if (input_reserved) usb_hid_cancel();
     if (client>=0) { shutdown(client,SHUT_RDWR); close(client); client=-1; }
     used=0; action_id=stop_id=cancelled_id=0; input_generation=1; memset(&ledger,0,sizeof(ledger));
 }
@@ -73,10 +73,15 @@ static bool process_line(char *line,int64_t now) {
     if (command.kind==PA_STOP) {
         if (input_generation==UINT32_MAX) return false;
         ++input_generation;
-        usb_hid_cancel(); cancelled_id=action_id; action_id=0;
+        if (input_reserved) usb_hid_cancel();
+        cancelled_id=action_id; action_id=0;
         stop_id=command.id; action_started=now; return true;
     }
-    if (action_id || !last_ping || now-last_ping>PA_LEASE_MS || !usb_hid_start(&command,now)) {
+    if (action_id || !last_ping || now-last_ping>PA_LEASE_MS || !usb_hid_enabled()) {
+        pa_cancel(&ledger,command.id); return acknowledge(command.id,"cancelled");
+    }
+    if (!input_reserved) input_reserved=developer_service_reserve_input();
+    if (!input_reserved || !usb_hid_start(&command,now)) {
         pa_cancel(&ledger,command.id); return acknowledge(command.id,"cancelled");
     }
     action_id=command.id; action_started=now;
@@ -89,8 +94,6 @@ void app_main(void) {
     if (bluetooth_status!=ESP_OK) {
         ESP_LOGW(TAG,"BLE diagnostics unavailable: %s; USB remains available; NVS preserved",esp_err_to_name(bluetooth_status));
     }
-    esp_err_t wifi_status=wifi_board_start();
-    if(wifi_status!=ESP_OK)ESP_LOGW(TAG,"Wi-Fi setup unavailable: %s; USB remains available; NVS preserved",esp_err_to_name(wifi_status));
     int listener=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
     ESP_ERROR_CHECK(listener<0 ? ESP_FAIL:ESP_OK);
     struct sockaddr_in address={.sin_family=AF_INET,.sin_port=htons(28766)};
@@ -108,7 +111,13 @@ void app_main(void) {
         if (client>=0 && (!usb_online() ||
             now-last_packet>60000 || (action_id && (now-last_ping>PA_LEASE_MS || now-action_started>2500)) ||
             (stop_id && now-action_started>500))) close_client();
-        usb_hid_tick(now);
+        if (!usb_hid_enabled()) usb_hid_tick(now); // Disabled HID sends no reports.
+        else {
+            // Startup and interrupted input can still need all-up. They first
+            // reserve the same owner; a different channel never sees their TX.
+            if (!input_reserved && !usb_hid_neutral() && usb_online()) input_reserved=developer_service_reserve_input();
+            if (input_reserved) usb_hid_tick(now);
+        }
         uint32_t done=usb_hid_completed();
         if (client>=0 && done && done==action_id) {
             pa_complete(&ledger,done); action_id=0; acknowledge(done,"executed");
@@ -123,6 +132,9 @@ void app_main(void) {
             uint32_t id=stop_id; stop_id=0; pa_complete(&ledger,id); acknowledge(id,"executed");
             // TCP and the command ledger outlive tasks. Next input uses the
             // incremented generation, not a new connection or reset command ID.
+        }
+        if (input_reserved && usb_hid_neutral()) {
+            input_reserved=false; developer_service_release_input();
         }
         if (client<0) {
             if (usb_online() && usb_hid_neutral()) {
