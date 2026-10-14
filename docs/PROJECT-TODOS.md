@@ -520,3 +520,179 @@ App 可以安装、打开及配置模型，独立系统截图服务曾成功；�
 - 本机严格代码签名验证通过，签名后恢复原钥匙串搜索列表。包没有加入 API key 文件。USB 原始记录 `2026-10-13 16:41:01 ... INFO Installation succeed.`；设备元数据确认版本 `1.3`、`SuibanSourceCommit=1aab1337778a35b2b80989e0fe96c7ff2acb8daa`，启动返回进程号 `15785`。
 - 更新后读取应用偏好，确认保留 1 个“智谱 AI”供应商、所选 `glm-5.3-flash`，并与更新前逐项比对所选配置及 `keyAccount` 引用一致。没有导出或打印 Keychain 密钥，也没有调用真实模型推理。
 - 用户在使用其他 App，当前屏幕不能作为随办新页面证据，因此没有宣称此次已完成页面截图验收。安装、进程启动和配置保留已验证；自然语言识别及定时手机操作端到端仍待真机验收。
+
+## 随办硬件v1与无线开发恢复（2026-10-13）
+
+- 用户重新要求开发蓝牙及 Wi-Fi，并要求不依赖同一个既有 Wi-Fi。连接模式品牌改为“随办硬件v1”；“执行模式”改为“后台运行方式”，说明任务可以从对话、Siri／快捷指令或定时触发，音频与画中画仅是后台待命方式。
+- 读取当前手机配置，确认智谱、`glm-5.3-flash` 和密钥引用存在。使用同一用户提供的本机私有密钥向官方 endpoint 发出一次合成红色图片／诊断工具请求，返回 `HTTP 200`、`finish_reason=tool_calls`、`connection_probe(color=red)`。没有发送手机截图或业务内容。此证据证明 API 侧鉴权、视觉与工具可用，不等于手机内完整控制任务验收。
+- 恢复旧 BLE 原型作为共同基础：硬件身份、USB 状态、加密连接和双向 PING；不接受手机动作、不开放无线转发。App 增加硬件蓝牙入口、明确当前仅诊断，并增加旧取消回调／退役连接的代次保护；蓝牙诊断不接管 USB／VPN 控制通道。
+- ESP-IDF 5.5.5 固件编译成功，修正旧 `ble_store_config_init` 隐式声明，声明写法与 SDK 官方 bleprph 示例一致。移除会自动淘汰旧配对的演示回调；NVS 失败保留原数据并让 USB 继续启动。没有 NVS erase、eFuse 修改或新增外部生产依赖。
+- 候选固件 `.build/wireless-ble-firmware/phoneagent_usb_device.bin` 为 695712 字节，SHA256 `f05ec7a83cddf14f87b5655bbf5b41484f20658d80d130998fdfd9afd73ad6ac`；原始日志 `phoneagent_usb_device.bin binary size 0xa9da0 bytes.`、`Project build complete.`。当前 Mac 未枚举到板子烧录串口，尚未烧录、尚未证明真实 BLE 连接。
+- Wi-Fi 方向待用户选择：附近可用 BLE 发现／绑定加板子热点，无需共同路由器；跨不同互联网网络需要中转服务器／隧道。S3 不在乐鑫现行 Wi-Fi Aware iPhone 互通支持名单中，不能承诺使用 S3 保留原 Wi-Fi 的点对点能力。热点自动加入还需核对签名是否授权 HotspotConfiguration；手动加入可作为联调入口。
+- USB／Wi-Fi 的目标规则为同一任务独占一条通道：空闲时可优先 USB，执行中不因插线抢占；断线停止并撤销旧截图／授权，未知输入不重发。现有任务占用和会话代次机制可复用；无线 Wi-Fi 通道及两链路共同仲裁尚未实现。蓝牙／Wi-Fi传输也不能解除已记录的 iOS 26.5 CoreDevice 控制服务限制。
+
+### 统一硬件设置与附近无线连接（后续进展）
+
+- BLE 基础固件已核对 ESP32-S3、16MB flash 与 MAC 后烧录；所有镜像区域校验通过，保留原分区和 NVS。App 1.4 已 USB 更新，用户确认可以打开且蓝牙连接成功。上述早期“未烧录”状态已被这次实际证据取代。
+- 用户要求将蓝牙和 Wi-Fi 放在同一前端页面。设置中的“硬件设置”统一展示首次配网步骤、已保存设备、实际操控通道、手机操控连接与最多 20 条脱敏连接记录。蓝牙连接时已自动 PING，不再另放重复测试按钮；手机操控使用“连接并检查”确认系统配对与开发者服务。
+- 新 Wi-Fi 路径使用附近硬件热点，手机无需与板子加入同一个家用路由器。首次需先连接已加密、已绑定的蓝牙，按 BOOT 为当前连接开放 60 秒读取窗口，获得与板子 ID 严格匹配的配置。硬件凭据保存在版本化 NVS blob，手机凭据保存在本机钥匙串；后续重启可直接使用已保存 Wi-Fi，不要求保持蓝牙连接。
+- USB 固定地址保持 `192.168.7.2 → 192.168.7.1`；Wi-Fi 为 `192.168.8.2 → 192.168.8.1`。每条 Wi-Fi TCP 先验证 `NW1 AUTH`，再复用现有 ND1／NR1，凭据不写日志。固件两条链路共用一个 relay owner；不同接口或地址不能凭同一个 nonce 接管或取消另一条链路。
+- App 在一次连接开始时选择通道，有效 USB 优先，无效／歧义 USB 报错；同一次连接的发现、认证及隧道固定使用所选接口和本机地址。执行期间不切换。配置、加入热点、清除凭据受已有任务与连接占用约束；异步回调有代次、超时与取消保护。断线或保活失败清除旧截图、撤销旧会话，记录原因，不自动重发操作。
+- 当前 USB 状态通过实际接口判断，不用 BLE 旧缓存阻止拔线后的配网。签名描述文件已确认授权 `HotspotConfiguration`；工程与本地签名仅补此加入热点权限，不新增 VPN 扩展权限或第三方生产依赖。新增 Wi-Fi 固件模块、统一页面和权限文件是这条连接功能所需。
+- 硬件热点不提供 DNS、默认网关或互联网；手机调用智谱等模型仍需可用的蜂窝网络或其他独立上网路径。此版本限附近使用，尚未实现异地中转服务器，也未解除 iOS 26.5 已观察到的 CoreDevice 控制服务限制。
+- 本机 91 个 Swift 文件源码检查、工程生成、修改文件语法和 `git diff --check` 通过。Rust relay 6 项、既有 FFI 8 项、host staticlib 与 C ABI 检查通过；C relay ASan／UBSan 包含跨接口／地址 TUNNEL 和 CANCEL 拒绝、双向 1MiB、停止和会话隔离通过。PA3 回环 25 项通过；host harness 仅补无线不可用桩以保留现有 USB 检查，未模拟真实无线成功。
+- 首轮固件编译修正 SDK 公共 DHCP 选项前缀；随后镜像出现 `Error: app partition is too small ... size 0x109af0`、`overflow 0x9af0`，尚未写入该超限镜像。改用官方 `CONFIG_COMPILER_OPTIMIZATION_SIZE` 增量编译，以保留原 1MiB App 分区和 NVS；最终尺寸、SDK 构建与真机热点验收证据待补。
+
+### App 配网与 iOS 26.5 首次授权（最新调整）
+
+- 用户明确取消硬件按键配网。该要求取代上文 BOOT／60 秒窗口设计：板子上电生成或读取原有版本化 Wi-Fi 配置并启动热点；已配对、已加密的蓝牙可响应 App 读取，无 GPIO0 按键任务。原 NVS 密码及蓝牙绑定保留，不清除或轮换已存在的配置。
+- 统一硬件页面提供“配置并连接 Wi-Fi”，串联读取、严格核对板子身份、保存钥匙串和系统入网请求；保存成功后继续入网前检查同一操作标识，停止或过期回调不会再启动入网。已有配置直接加入热点即可，全流程无需硬件按钮。
+- 新版保留旧蓝牙异步任务启动前与返回后的代次检查，避免服务变化时旧 PING 影响新连接。真机联调增加显式 DEBUG 参数的有界探针，仅连接已记住的指定板子、读取一次；显式配网探针可调用同一 App 配网流程。凭据不进入诊断日志，普通启动不运行探针。
+- `4b8325b` 的 [iPhoneOS 构建](https://github.com/sjgw29d2nm/actell/actions/runs/38380344627) 成功，产物 `11803347627`；App 1.5 USB 安装并启动成功，已确认智谱供应商、所选配置及钥匙串引用保持一致。原热点固件已写入、逐区域校验并启动；手机实际硬件页截图显示 `.104` 读取超时后断开蓝牙，因此不能把该版本算作完成 Wi-Fi 真机验收。
+- 原手机内首次配对使用 iOS 27 的新网络入口。保留 iOS 26.5 时，在用户已信任的 Mac USB 连接上创建全新、仅随办使用的 RemotePairing controller；M6 强验签、指定 UDID／机型核对与第二条新连接 Pair Verify 均成功，原始结果 `BOOTSTRAP_OK record_written=true m6_signature_verified=true fresh_pair_verify=true bytes=647 mode=600`。记录原子写入当前 App 原来不存在的自身身份文件，没有覆盖已有 App 身份或导入其他应用／Mac 的 RemotePairing 密钥。
+- App 说明旧系统首次授权需 Mac，已保存授权后可连接 USB 或硬件 Wi-Fi；不再让 iOS 26.5 用户反复尝试 iOS 27 的手机内首次授权入口，也不因重试清除已有授权。该首次授权结果仍不证明视频截图／触控在当前系统已可用。
+- 本次只重编相关固件与 App 并进行用户要求的真机联调。取消按键后的固件尺寸、SDK 构建、更新安装和真实入网结果待本次补充；原 USB／Wi-Fi 独占、超时、会话隔离及未知操作不重放的检查证据继续保留。
+
+### 2026-10-13 · 保留手机现有 Wi-Fi 的 App 配网
+
+- 用户要求手机已有 Wi-Fi 时保留原网络，未连接 Wi-Fi 时使用硬件热点与蜂窝网络；开放网络密码可为空，隐藏网络需要真实 SSID。本次取代早期只提供硬件热点的默认流程，全程不需要硬件按钮。读取当前 Wi-Fi 名称通过官方系统接口，仅点击读取按钮时申请定位授权，不采集坐标；系统无法返回名称时手填，不能导出系统保存的密码。
+- BLE 新增一次路由器配置写入 `.105` 与只读网络状态 `.106`；ACK 前同步目标 SSID 与 connecting 状态，之后只读轮询，不把接收成功当作入网。路由器配置仅成功取得有效地址后提交 NVS，失败保留原保存配置；App 同时保留路由器与备用热点的钥匙串配置，不长期保存路由器密码。
+- USB／AP／STA 固定真实 netif 与本机地址，三源共用一个操控 owner；配网与新操控打开通过原子门互斥。USB 地址保持不变，AP 在 8/24 与 172.31.254/24 两池间避让已保存路由器网段。STA 恰好取得 USB 的 192.168.7.1 时明确拒绝，保留 USB 服务。路由器模式限私网 IPv4 peer 的发现与外层连接；不接受同一路由器中其他手机的 IPv6 候选，也不暴露旧 USB 专用 HTTP 入口。USB/AP 原路径保留。
+- App 新 Wi-Fi 接口支持动态私网地址与连续 /8…30 掩码，保留旧固定 AP ABI 和 USB/VPN ABI。真实 Wi-Fi／蜂窝地址不会被误判为 USB；未知、IPv6-only 或检测超时不会当作没有 Wi-Fi，已有 Wi-Fi 时不调用系统热点切换。
+- 复查发现保存路由器和热点可能同网段，不能只按 IP 或旧配置优先选路；用户显式检查时以有限只读 STATUS 确认可达硬件后锁定本次配置，歧义不进入操控。停止配网、网络变化与连接故障清除旧确认；同一次任务不切路、不重放输入。
+- 本机相关检查：App 91 个 Swift 文件 source/project 检查通过（不是 SDK 类型检查）；Rust relay 7 passed、host 静态库与旧/v2 C ABI 检查通过；Swift 动态配置 5 组合法／15 组非法通过；PA3 USB 回环 25 passed。C relay ASan/UBSan 的跨源 nonce、独占、背压及停止释放检查通过。无全量模拟器或 UI 测试声明。
+- 178e 无按键热点固件已逐区域校验并确认实际启动：`suiban_ble: advertising Suiban-v1`、`suiban_wifi: local access point started`、`pa_developer: authenticated Wi-Fi developer transport listening`；这只证明固件启动，尚非新路由器模式手机验收。路由器候选在独立 build 编译，保留原分区/NVS；最终镜像、SDK 构建、安装与真实入网结果待补。
+- 当前 Mac 手机检测原始结果为 `[]`，已请求用户重新接到 Mac 并解锁；独立固件与 App 工作继续。现有 iOS 26.5 截图／触控 CoreDevice 限制不会因 BLE 配网或 Wi-Fi STATUS 成功而自动解除。
+- 最终路由器固件 SDK 构建通过：App `1007168` bytes、SHA256 `d14da81cc2d6ada54259d398728e6cb7a93665b2a21288d344d0a1211936779c`；原 1MiB 分区剩余 `41408` bytes。分区与此前镜像逐字节相同，四个改动 C 文件实际 xtensa 语法检查通过；没有新增生产依赖。当前 Wi-Fi 范围为 2.4GHz 开放／WPA2 私网 IPv4，访客隔离、5GHz-only、企业登录和跨互联网中转尚不支持。
+
+### 2026-10-13 · 7cef192 构建与设备交付证据
+
+- 源码已提交并推送 `7cef1923bccda545471ea0ebe72fe5e89073a6bf`，草稿 [PR #3](https://github.com/sjgw29d2nm/actell/pull/3) 已更新本轮 App 配网与无线通道范围，未合并。
+- [iPhoneOS 构建 38390430425](https://github.com/sjgw29d2nm/actell/actions/runs/38390430425) 成功；原文 `2026-10-13T11:31:33.6754760Z ** BUILD SUCCEEDED **`。无签名产物 `11807897936`，下载归档 SHA256 `c44a02d16ff3395389016ddc9b8ce1114a7ad54c8e04b3f62c4105943b94f11a`。build_only 明确跳过 XCTest/模拟器/UI 检查，不能把 job 名称当成这些测试已通过。
+- App 1.6 已在 Mac 使用原描述文件本机签名，严格 codesign 校验通过；主 App ID、iOS 26.5 最低版本、ScreenCaptureKit 弱链接和来源提交均核对。描述文件及最终签名都授权 HotspotConfiguration 与 wifi-info，原钥匙串搜索列表已恢复。当前证书只覆盖主 App，因此本地包继续不包含 Live Activity 扩展；模型密钥没有打入包或上传。
+- 路由器固件已在指定 ESP32-S3 编程串口核对 USB 序列/MAC/16MB 后写入，bootloader/原分区/App 三个区域校验通过；App SHA256 与上述最终候选一致。没有写入 NVS 或 eFuse。启动原文：`pa_developer: ND1 / NR1 / NL1 share one USB/AP/router relay owner`、`suiban_ble: advertising Suiban-v1`、`suiban_wifi: local access point started`，本次采样无 panic/abort。此处证明写入和启动，不代表手机已经入网。
+- 新版 App 尚未安装。本次最终 usbmux 原始结果仍为 `[]`，独立 USB 层报告 `usb_iPhone_present:false`，而已知板子仍在。已请求用户重新连接并解锁手机；安装包和保留 App 自身身份／智谱配置的更新与检查命令已准备。不能把待安装、蓝牙/Wi-Fi 真机读取、开放/隐藏网络入网和完整手机任务执行记为完成。
+
+### 2026-10-13 · App 1.6 安装、Wi-Fi 诊断与产品频段约束
+
+- App 1.6 已通过指定 iPhone USB 更新，安装原文 `100% Complete`、`Installation succeed.`，查询版本为 1.6、来源 7cef192，启动成功。更新前后完整 providerProfiles-v1／钥匙串引用一致，智谱配置保留；647 bytes 随办专用身份逐字节一致。此前待安装状态已由这次实际证据取代。
+- 实际手机截图确认已打开新版硬件页。一次已保存指定板子的 BLE 探针：`1.221 read.success credentials_discarded=true`、`1.281 router.read.success state=failed board_id_match=true`、`1.288 network.read wifi_connected=true ipv4_available=true network_changed_by_probe=false`。旧 .104 读取超时本次未复现；路由器入网失败仍需独立定位，不能宣称完整无线操控通过。
+- 用户确认现场是无密码、无需网页登录的网络。Mac CoreWLAN 对用户当前 SSID 只发现 1 个开放网络，`band:2,channel:40`；SDK 枚举核对 band2GHz=1、band5GHz=2。针对截图中的另一同部门 2.4GHz 名称，当前扫描为 `matching_networks:[]`。这些只证明本机当前观察，不能推断所有用户网络都只有 5GHz。
+- 串口采样没有主动发送 reset，但采到了 `rst:0x1 (POWERON)` 及启动日志；不能把该采样当成不中断运行的证据。已停止串口访问，后续通过 App 的有界蓝牙诊断；当前失联按钮需要给出清楚的重连入口。
+- App 硬件页改为四个区域：设备连接、手机网络只读、硬件网络、手机操控验证；备用热点和维护／连接记录折叠。灰按钮显示占用／蓝牙／固件／名称原因，未连蓝牙时可点重连。SSID 初始填充修复，开放网络无需密码；入网成功但局域网不互通单独报告，具体失败码只显示固件公开静态码或规范 wifi_<UInt16>，不输出密码或 token。错误呈现合成检查 15 合法／7 非法通过。
+- **产品无线要求更新为支持 2.4GHz 与 5GHz，并保留手机原网络**，不把改路由器或寻找 2.4GHz 当成用户的正常使用前提。当前 v1 的 [ESP32-S3](https://www.espressif.com/en/products/socs/esp32-s3) 射频只支持 2.4GHz，无法通过固件升级补出 5GHz；App 明确显示现板能力，不能把此限制伪装成 Wi-Fi 配置冲突。
+- 可评估保留 S3 的 USB Device/NCM 与 BLE，增加 [ESP32-C5 双频通信](https://documentation.espressif.com/esp32-c5_datasheet_en.html)，经官方 [ESP-Hosted MCU](https://github.com/espressif/esp-hosted-mcu) 的 SPI 等 MCU 通道接入。C5 的 USB Serial/JTAG 不等于 S3 的通用 USB OTG/NCM，不能作无需改板的直接替换。此处为核对官方能力后的方案，尚未新增硬件、引入生产驱动或完成双频适配；具体接线／可用 GPIO／镜像容量与整机验证仍需在选定硬件后确认。
+
+### 2026-10-13 · 纯蓝牙方案只读复核
+
+- 用户要求如果纯蓝牙可完成全部手机任务，就先不启用板子 Wi-Fi，并允许删除 Wi-Fi。该删除条件当前尚未满足：现版自定义 BLE 只提供诊断与配网，未有 HID 输入，任务截图仍走 CoreDevice 硬件 USB/Wi-Fi 或外部 VPN 回环。本次保持现有模块，未因能力推测删除代码或修改板子启动配置。
+- ESP-IDF 5.5.5 的内置 `esp_hid` 已有 NimBLE 键盘／鼠标实现，可作为输入原型基础：[官方示例](https://github.com/espressif/esp-idf/blob/v5.5.5/examples/bluetooth/esp_hid_device/README.md)。[Apple 辅助触控](https://support.apple.com/zh-cn/guide/iphone/iph96b21954/26/ios/26) 支持蓝牙指针设备，但相对鼠标位移不是屏幕像素；HID 通知提交成功不等于目标已被点击。中文、定位反馈、多指手势、停止释放、HID 与自定义服务共存及重连仍待实现和实机验收。
+- 板子无 Wi-Fi 的可评估链路为：手机本地跨 App 采集 → 手机自身网络调用模型 → BLE 命令 → 板子 HID 输入。图像无需经 BLE 传输，手机可以继续使用自己的 5GHz Wi-Fi 或蜂窝网络；这里是架构方案，不是已可用功能。
+- 当前 ScreenCaptureKit 实现只在 iOS 27 开启。iOS 26.5 的 `RPScreenRecorder.startCapture` 只采集本 App；系统级跨 App 采集需要 ReplayKit Broadcast Upload 扩展，由用户通过系统按钮确认开始。[Apple RPScreenRecorder](https://developer.apple.com/documentation/replaykit/rpscreenrecorder)、[Apple WWDC18 系统广播](https://devstreaming-cdn.apple.com/videos/wwdc/2018/601nz4m863hyf0/601/601_live_screen_broadcast_with_replaykit.pdf)。广播本身不保证主 App 的 AI 循环无限后台运行，仍需保持解锁和有效的运行资格。
+- 当前提供的签名授权只读核对：主 App true、独立广播扩展 false、拟定共享 App Group false。若采用标准共享组传递最新帧，主 App 与扩展需匹配该组，扩展需独立描述文件。现有主 App 显式 App ID 不能覆盖另一个扩展。此真实签名缺口尚未补齐，不宣称完整纯 BLE 安装或 USB 全能力替代已完成。
+- 下一阶段验收顺序：先只在随办自己的测试页面验证 BLE 键鼠及停止释放；再接入合法跨 App 采集与匹配签名；最后验证真实任务、中文／拖动／重连与后台条件。完整闭环通过后，再按用户要求关闭并移除板子 Wi-Fi。只读复核没有新增生产依赖、烧录板子或操作手机输入。
+
+### 2026-10-13 · USB 入口与 Lightning 接线说明
+
+- 用户指出现装 1.6 的硬件页只有显眼的蓝牙／Wi-Fi 配置。源码及该版来源核对：USB NCM 仍保留，初次连接优先选择有效 USB 接口，原生 USB 与编程 COM 不是同一数据通道；无需先做蓝牙／Wi-Fi 配网。不能把页面遗漏等同于 USB 协议缺失。
+- 硬件页顶部新增 USB 有线说明，唯一手机操控连接区移到顶部，实际通道只在 `ready` 后显示；蓝牙与 Wi-Fi 保持同一个可选无线配置页面。没有新增连接偏好或改变传输选择、会话锁与断线停止行为。
+- 用户确认当前使用苹果充电线，前次实机型号为 Lightning 接口 iPhone 12 Pro Max。普通 Lightning 充电线不能代替 USB 外设转换器；App 增加相机转换器、原生 USB／OTG 口、辅助供电及识别以太网后的固定地址说明。参考 [Apple USB-A 相机转换器](https://support.apple.com/zh-cn/111811)。这是接线要求核对，尚未用合适转换器确认当前手机能够枚举本板或执行任务；亮灯本身也不是 USB 操控验收。
+- 相关 source/project 检查 91 Swift 文件通过，3 个改动 Swift 文件 `swiftc -frontend -parse` 与 `git diff --check` 通过；这些不代表 iPhoneOS SDK 类型检查或真机 UI 验收。新入口尚未构建或安装，手机现装仍为 1.6／7cef192。此轮未烧录固件、改供电或关闭 Wi-Fi。
+
+### 2026-10-14 · BLE 键鼠输入原型与 App 1.7 设备交付
+
+- 用户授权编写并联调纯蓝牙输入。新增标准 HOGP 键盘／相对鼠标以及自定义 `.107` 命令、`.108` READY/ACK；复用现有 ESP-IDF `bt` 内置 NimBLE HID，不新增生产依赖。原 USB、SB1 诊断与 Wi-Fi 模块保留，完整替代的删除条件尚未满足。
+- BH1 指令使用连接 nonce、独立 owner、单调 UInt32 ID 和 32 项回执记录，未知结果不重发。750ms 有限租约、250ms App 保活，与 USB/AP/STA 复用独占门；STOP 取消排队输入并发送键鼠 neutral，无法确认释放时保留占用直到实际断链。BEGIN 要求当前加密与 bond、实际 ATT MTU≥163、系统键盘／鼠标和 App ACK 三项通知订阅。
+- 新原生「蓝牙键鼠」入口及随办自身输入测试页：目标按钮实际事件计数、相对移动、滚轮、英文 `suiban123` 和显式中文剪贴板粘贴。离开前台或退出即停止。`reports_sent` 只证明 SDK 通知发送完成，不代表文字或点击已生效；尚未开放模型绝对点击／拖动或新增 BLE AI 主路由。
+- 新 ReplayKit Broadcast Upload 扩展与单份最新帧存储基础，用户通过系统广播按钮确认。默认主 App 不增加 App Group 权限，缺扩展或自身共享组授权就显示不可用；不使用其他 App 的共享组和配对数据。当前提供的描述文件仅覆盖主 App，不能签名此广播扩展或授权拟定自身 App Group，因此 1.7 安装包移除扩展，iOS 26.5 跨 App 采集和完整 AI 执行尚不可用。
+- 相关检查原文：`BH1 private state checks: 396 passed (real source; stubbed SDK only)`，包含持续保活账本轮转、重复指令不重放、初始未订阅、STOP/晚到 TX、租约及共享门；使用 ASan/UBSan。App source/project 95 个 Swift 文件通过、改动 Swift 语法检查通过、HID transport 主机类型检查和 wire 8 合法／12 非法样例通过。ReplayKit store Swift 6 主机类型检查通过；这些主机检查不代替真机验收。
+- 源码 `5ff4994b3c5a2168fcf146efe323097b2c5a54c7` 的 [iPhoneOS SDK 构建 38497737627](https://github.com/sjgw29d2nm/actell/actions/runs/38497737627) 成功，原文 `2026-10-14T01:53:18.0453110Z ** BUILD SUCCEEDED **`。产物 `11864930775`，下载归档 SHA256 `ff64d31e5a698007c098d33f7ecb6023cb6a47a7f32265708189e347d7885c4c`。`build_only` 未运行 XCTest／模拟器／UI 测试。
+- 指定 ESP32-S3 固件 SDK 构建成功，App `1016640` bytes、SHA256 `9ba314d3f4dc8a03415ba301428fa82a0325a67db35218ab774313a7ba2df8bf`，原 1MiB 分区剩 `31936` bytes。核对编程串口 USB 身份与板子 MAC 后写入 bootloader、原分区表和 App，并逐区域验证；没有覆盖 NVS/eFuse。启动日志确认 `suiban_ble: advertising Suiban-v1`，本次采样没有主动请求 reset，但采到 `rst:0x1 (POWERON)`，不能声称串口读取未造成重启。
+- App 1.7 已本机严格签名验证并在指定 iPhone 12 Pro Max／iOS 26.5 上通过 USB 更新，原文 `100% Complete`、`Installation succeed.`；查询来源为上述提交，启动成功。更新前后完整智谱供应商配置／钥匙串引用一致，随办自身 647 bytes 配对身份逐字节一致；密钥未打入本轮更新包或上传。
+- 用户已开启辅助触控并确认系统蓝牙发现／连接板子。App 真机探针原文：`1.094 connect.verified_board_id_match`、`1.282 hid.firmware.capability supported=true`、`1.284 probe.end bluetooth_connected=true`；只读取配置，未改变手机网络。实际截图确认新入口和已连接状态。此处尚不能证明 BEGIN 成功、HID 系统订阅、实际键鼠输入和停止释放，测试正在等待用户保持手机解锁并操作自身验收页。
+- 构建产物复核确认广播扩展已编译并嵌入 unsigned App，安装前因签名不足移除；未发现 CI 打包遗漏。发现显式主 Info.plist 不会自动纳入两项任意 `INFOPLIST_KEY_*` 配置，已补入自身共享组／扩展 ID 的源字段与静态断言，默认权限仍未扩展。相关 source/project 95 个文件与 plist 检查通过；此补丁产物字段待新 SDK 构建核对。隔离 QA venv 安装仓库已固定的 `tree-sitter==0.25.2`、`tree-sitter-swift==0.7.4`、`PyYAML==6.0.2`，无新增生产依赖。
+- 1.7 真机英文测试截图实际出现部分 `sui ba` 和中文拼音候选，错误原文「动作结果未知；未自动重发。」。中文粘贴后新截图完整显示「随办蓝牙测试」及「编辑框实际收到完整中文测试串。」：这证明自身页面实际输入，不是仅 ACK；英文输入法未切换与连续输入中断仍分别待验收。
+- 相关时序复核发现：旧固件只由 BEGIN/PING 续 750ms 租约，App 心跳遇 KEY pending 跳过，连续 KEY 能跨过 deadline。最小修复为正确 owner、尚未过期且被成功接受的新 KEY/MOUSE 同样续租；重复／拒绝／STOP 不续，过期 PING/KEY/MOUSE 即使 timer 尚未执行也无法复活。App 用局部 UUID 保护输入等待阶段，心跳不插入该阶段，旧清理不影响新会话。显式 DEBUG 验收日志仅记录阶段、ID、verb、公开错误码、长度与 ATT 错误，不记录 nonce／owner／按键／文本。该时序缺陷已由相关主机检查复现，是否为 1.7 首次失败实机根因仍需新回执日志确认。
+- 系统 HID 配对后硬件可能已被系统连接并停止广播；App 新增从系统已连接、提供随办专用服务的 peripherals 合并设备列表，仍需手动选择及原身份／PING 校验，不泛扫其他键鼠。未测 RSSI 仅显示「信号未测量」。
+- 修复后的固件相关 ASan/UBSan 检查原文 `BH1 private state checks: 557 passed (real source; stubbed SDK only)`；最终增量 SDK 成功，App `1016720` bytes、SHA256 `f2fb254917a19a9c33c25d9d80a13551cc3628c4ed5b34c021aefa57726456f4`，原分区剩 `31856` bytes，分区表仍不变。候选尚未刷写，App 修补尚待 SDK 构建与 1.8 真机更新；不将 1.7 部分输入记为完整键鼠／停止释放验收。
+
+### 2026-10-14 · 1caeeeb 构建、固件修复与 App 1.8 更新
+
+- 本轮修补已提交并推送 `1caeeeb6a387e574b6eb3b3d83afcd126670eaf3`。[iPhoneOS SDK 构建 38499939819](https://github.com/sjgw29d2nm/actell/actions/runs/38499939819) 成功，原文 `2026-10-14T02:17:23.6061630Z ** BUILD SUCCEEDED **`，仍为 `build_only`。产物 `11865492482`，下载归档 SHA256 `ccbaf267cfc36bcbd50e1c85bd63fcaa4086a4436b91bd7a7f9e46e9c3ee7c49`；主 Info 的自身共享组／广播扩展 ID 已在真实产物核对。
+- 新固件复制为固定候选后刷写：先核对目标 USB 身份、板子 MAC 和 16MB，再验证原 bootloader／分区表，仅写 App `0x10000`，最后全部区域对照校验成功，原文 `Flash write and region verification succeeded`；没有覆盖 NVS/eFuse。App SHA256 对应上述 `f2fb2549…` 候选。
+- App 1.8 本机严格签名校验通过，USB 安装原文 `100% Complete`、`Installation succeed.`；已查询版本／来源并启动。完整智谱 providerProfiles-v1 与密钥引用保持一致，随办自身 647 bytes 身份仍逐字节一致。描述文件不足的两项扩展继续移除，未申请或使用其他 App 的共享组。
+- HID transport 本轮主机类型检查通过，SDK 验证包括实际 DEBUG 脱敏日志。源码检查／固件状态检查与已完成的实际中文输入分别记录；连续按键修复、鼠标实际点击及 STOP 尚在 1.8 真机验收中。
+
+### 2026-10-14 · 用户取消硬件 Wi-Fi 方案
+
+- 用户最新明确「已经不再考虑 Wi-Fi 方案，把 Wi-Fi 方案清理」，取代此前「完整纯蓝牙替代后才删除」的条件。清理范围是硬件配网、热点／路由器 relay 及相关 App 页面；手机自身 Wi-Fi／蜂窝网络和外部 VPN 回环所需普通网络功能保留。
+- App 删除硬件 Wi-Fi 配置／配网页面、BLE `.104`～`.106` API／回调、热点及 SSID 定位权限；硬件页保留 USB、纯蓝牙键鼠和最近 20 条脱敏连接记录。设备 UUID／身份仍记忆，旧历史标明旧记录，不读取或擦除旧 Wi-Fi Keychain 凭据。纯蓝牙入口可导航，USB 还原检查占用时提供显式停止入口，实际输入仍受占用门保护。
+- NCM 硬件 transport 只保留 `.usb`，删 `WirelessRelayConfiguration`、无线探测与全部 `ncm_wifi_*` ABI／导出。USB 的 NR1／NL1、VPN 和原授权／会话机制保留，USB 接口识别继续排除手机 Wi-Fi／cellular，防止把路由器的 `.7.2` 当作 USB。
+- 固件删除应用 `wifi_board.c/h`、AP／STA／NW1 无线入口及配网特征，不再启动 Wi-Fi；BLE 保留身份／PING 和 BH1/HOGP。固件链接符号核对无 `esp_wifi_init/start/set_mode`、默认 AP／STA netif 创建与 DHCP server 启动，SDK 内部编译蓝牙依赖库不代表启动 Wi-Fi。
+- 相关检查：NCM Relay 5/5、FFI 8/8、Host 静态库与 C ABI、USB/probe Swift 类型检查通过；实际 Mac 已识别 Wi-Fi 接口用合成 USB 地址验证排除规则通过。App 95 个 source/project 检查和相关 Swift parse 通过；PA3 原 25 项回环测试通过，未删除核心协议／停止／不重放覆盖。
+- 1.8 刷写后探针原文 `25.026 connect.timeout`。有界 UART 启动采样后出现 `rst:0x1 (POWERON)`、`advertising Suiban-v1`、`connection result=0`、`encryption result=0`；看起来与刷写后复位释放时序有关，不能声称最初 `hard_reset` 已证明启动。后续升级工具补受控启动验收，不因串口采样成功而宣称不会重启。
+- 检查同时发现通用门覆盖 NR1/NL1 与 BLE，但 PA3 旧 USB HID 路径尚未接入。当前 NCM 固件 USB HID count=0，未触发真实 PA3 输入；为保证保留 USB 能力与 BLE 互斥，正在补 PA3 自身 owner 门，释放须等待 neutral，未确认释放不交给另一输入方。清理固件最终候选与新 App 尚待此检查闭环、构建、刷写和安装。
+- PA3 互斥补丁已收口：真实开始输入或启动 neutral 前取得同一门；无 owner 的 STOP／关闭不发 USB 报告，输入／释放等待期间持门，确认 neutral 后释放，不能用 USB suspend/offline 提前交给蓝牙。私有 actual-main/BH1/实际门与 motion 联合 ASan/UBSan 检查 103 项通过，原 BH1 571 项与 PA3 25 项仍通过，原用例未删改；最终增量 SDK 与设备交付待完成。
+- 手动停止 USB 后，本次进程的自动恢复会被抑制，直至用户或明确设备工具重新连接；硬件页不再额外自动恢复。首次系统配对入口补 HID 占用检查，防止从辅助触控返回后又自动验证 USB，反复禁用蓝牙输入按钮。未新增用户配置或修改保存身份。
+
+### 2026-10-14 · bcabe7f 交付：USB／BLE、无硬件 Wi-Fi
+
+- 清理与互斥补丁已提交并推送 `bcabe7fc2fe92e469cacc121a44dfdc8ade17dc5`。[iPhoneOS SDK 构建 38502800238](https://github.com/sjgw29d2nm/actell/actions/runs/38502800238) 成功，原文 `2026-10-14T02:50:03.1509450Z ** BUILD SUCCEEDED **`，`build_only` 没有运行原生 XCTest／UI 测试。产物 `11866438727`、归档 SHA256 `9701dc32c61a3f69df1cc80bf9c5c5e1278e51dfeb42cb4213268ae16f4370b9`。
+- 最终固件 `642704` bytes，App SHA256 `ecd2153e37ba1db13ff760c29df4b3432979a855b60bcbbaf5a77de160812e6c`，原 1MiB 分区剩 `405872` bytes。复制固定候选，沿用已验证 bootloader／原分区，仅写 App；区域校验和有界 UART 启动验收通过。原文 `USB ND1 / NR1 / NL1 and BLE input share one owner`、`advertising Suiban-v1`、`connection result=0`、`encryption result=0`，没有硬件 Wi-Fi／AP／STA 启动。升级不覆盖 NVS，编程口打开可能复位已明确计入此次升级。
+- App 1.9 本机严格签名／USB 安装、来源查询、启动通过，原文 `Installation succeed.`。最终签名不含 HotspotConfiguration／wifi-info，配网与定位入口移除。智谱完整配置和 Keychain 引用、随办 647 bytes 配对身份与升级前一致；提供的描述文件不足以签广播扩展，两扩展仍移除，跨 App 采集没有假装可用。
+- 1.9 真机探针原文：`1.465 connect.verified_board_id_match`、`1.568 ping.verified`、`1.571 hid.firmware.capability supported=true`、`1.574 probe.end bluetooth_connected=true`。不再读取配网特征或切换手机网络。用户确认新版英文和中文输入测试没有问题；保留的最后按键回执 `KEY phase=reports_sent code=ok`，退出页面时 `STOP phase=neutral_sent code=ok`。日志环限 240 条，较早的英文序列已被闲时 PING 覆盖，不把此日志宣称为全部英文按键原始链；截屏时已离开随办，不计作键盘结果截图。
+- 鼠标移动、目标实际计数／单击与停止释放正在等待自身测试页结果；模型绝对点击、拖动、完整 BLE AI 主流程以及匹配签名的跨 App 采集仍待后续验收。
+
+### 2026-10-14 · 自动鼠标验收
+
+- 用户要求复杂测试由开发侧自行完成。蓝牙页改为「一键检查鼠标」，原键盘与手动方向／点击调试收起；全屏专用画布自动发送两组有限相对移动和两次单击，实际 UI tap 事件独立记录次数及坐标，不把报告位移当成屏幕像素，不在未知或漏点后自动重试。
+- DEBUG 显式启动参数直接显示该根页面，核对已记住硬件及指定板子身份；Mac 可启动、读取自身验收日志和截图，无需用户逐个点击方向按钮。结束、取消、后台或锁屏都停止释放，已有 Agent 任务运行时不测试。真实点击位置应明显不同且恰好两次，STOP 应确认 neutral，之后观察无额外点击。
+- 本次只改 App 验收入口，固件沿用已刷写并验证的 bcabe7f；源码语法检查通过，原生 SDK 构建、安装和自动鼠标真机结果待补。英文／中文实际输入沿用用户对 1.9 的确认，不伪造新结果。
+- 提交 `b2c0071e26bc43d4a851b551e1086e57e4acf8ec` 的 [iPhoneOS SDK 构建 38505427019](https://github.com/sjgw29d2nm/actell/actions/runs/38505427019) 成功，原文 `2026-10-14T03:22:01.0283490Z ** BUILD SUCCEEDED **`；build_only 未运行原生 XCTest／UI 测试。产物 `11867913279`、归档 SHA256 `7674cb56cad1c0a7d8be3894b6ac6a892ec81e99c0be53a98e2ac6784f12b84f`。App 1.10 本地严格签名通过，保持原签名／身份／智谱配置政策，尚未安装。
+- 用户随后报告不能手动打字。代码未修改或锁定系统输入法，板子被识别为外接键盘可能使屏幕键盘不再自动显示；已依据 [Apple 官方说明](https://support.apple.com/zh-cn/111775) 请求开启系统「显示屏幕键盘」。上次实际日志原文 `2026-10-14T02:59:24Z BH1 ACK id=156 verb=STOP phase=neutral_sent code=ok`，不能据此代替本次实时状态。此次截屏为黑屏，读取日志原文 `pymobiledevice3.exceptions.AfcException: [Errno 10] Opcode: FILE_OPEN failed with status: 10: None`；已暂停新的鼠标动作，等待用户解锁及确认手动输入恢复后再安装／自动验收，不对输入问题作已修复声明。
+- 用户解锁后，App 1.10 USB 更新并启动完成，已查询版本／来源，智谱完整配置／Keychain 引用及 647 bytes 配对身份保持一致。蓝牙探针原文 `0.570 connect.verified_board_id_match`、`0.615 ping.verified`、`0.616 hid.firmware.capability supported=true`；首轮自动验收原文 `2026-10-14T03:29:48Z FAIL 已停止`，此前没有 BH1 BEGIN/WRITE。准备期出现 21 条 `ui.unexpected_tap`，未认定来自硬件，不作鼠标成功声明。
+- 看起来验收 Task 捕获了最初的 SwiftUI 环境前台状态，导致蓝牙已就绪仍等待 25 秒；改用由 scenePhase 事件更新的 State 前台门，active 后才自动启动，保留实时 UIApplication／保护数据／任务占用检查。新增准备状态日志与具体停止原因，非测试点击仍使验收停止，不忽略计数或重试未知动作。
+- 用户要求正常首页能连接硬件，并补充 USB 用户流程。首页／会话列表加入统一「连接随办硬件」卡片，导航复用原硬件页的 USB／蓝牙入口；USB 实际就绪状态优先显示，蓝牙连接只代表通信／输入状态。按钮只导航，保持原连接操作和共享门，执行中不自动换通道。蓝牙设置同时说明启用系统「显示屏幕键盘」，手机普通输入恢复尚待用户确认。
+- `09b26456c95ac7eeca86104822aac66cec39a215` 的 [iPhoneOS SDK 构建 38507073155](https://github.com/sjgw29d2nm/actell/actions/runs/38507073155) 成功，原文 `2026-10-14T03:40:31.9112440Z ** BUILD SUCCEEDED **`，仍为 build_only。App 1.11 已严格签名并 USB 更新、查询来源和正常启动；智谱完整配置／Keychain 引用及自身身份保持一致。实际截屏展示由首页打开的统一硬件页、USB「尚未验证」和蓝牙已连接，未把 Mac 编程口连接当成手机 USB 操控通过。
+- 1.11 自动验收前台门已实际通过：`readiness env_phase=active foreground=true app_state=0 protected=true model_busy=false reserved=false connected=true supported=true hid_busy=false`，BEGIN 成功。第一有限运动／按下／释放的回执包含 `id=799/800 verb=MOUSE phase=reports_sent code=ok`，但 UI 计数仍为 0；原文 `2026-10-14T03:43:29Z FAIL 真实点击未确认或次数异常，本轮已停止；没有自动重试`，随后 `id=803 verb=STOP phase=neutral_sent code=ok`。未重试未知点击，也未放宽计数条件。
+- 鼠标编码复查与现有描述符一致；归角后的低速小回撤可能尚未进入安全区，暂为推测。下一最小修补仅调整测试相对运动，首点用 `(4,8)×24` 回撤，收到实际首点后向画布中心方向作有限第二移动；记录真实画布 frame／参数，DEBUG 在按下前留 3 秒供 Mac 截屏。实际 UI 点击位置显示小标记，坐标仍只来自 tap 事件；固件和模型输入路由不变，新构建／真机结果待补。
+
+### 2026-10-14 · 原作者及 BLE 参考实现核对
+
+- 用户要求先核对原作者与现成方案。实时读取原作者 main `e701786d1686823f9ab60524e689e387b7c3b904`（2026-10-12）：[原 README](https://github.com/ja1chen/actell/blob/e701786d1686823f9ab60524e689e387b7c3b904/README.zh-CN.md) 已采用 CoreDevice 截图／触控，ESP32 为 USB NCM 网络转发，旧 USB HID 保留；原作者当前没有可直接复用的完整纯 BLE AI 路线。
+- 核对 [Hijel 固定源码](https://github.com/HijelHub/HijelHID_BLEMouse/blob/609d78dcebfd52be9aa8fc057fec5fa7abaf0f4d/src/HijelHID_BLEMouse.cpp#L116)、[Asterics 固定源码](https://github.com/asterics/esp32_mouse_keyboard/blob/7c63616b2da1c24ebe24509a44fcfa3aa4f575ed/main/ble_hidd_demo_main.c#L233) 与 ESP-IDF v5.5／内置 NimBLE HID。四字节按钮/X/Y/滚轮、主按钮掩码1、通过Report Reference关联ID和不在GATT值前加ID均有源代码依据；[SDK local write](https://github.com/espressif/esp-nimble/blob/cc3ac5416b46e6e9363dae357378c03b4975cfdb/nimble/host/services/hid/src/ble_svc_hid.c#L588) 确实安排通知。参考程序的发送节奏不同，不能把其相对单位直接当成本机屏幕像素。
+- 找到明确类别差异：参考实现广播 `HID Mouse 0x03C2`，随办此前是 `HID Keyboard 0x03C1`；本轮仅改该广告字段为 Mouse，保持报告布局、UUID、身份及 NVS/bonds。两个参考的显式设置均只涉及广告，不额外变更 GAP 2A01。此为有源码依据的单变量兼容候选，尚不证明它是本机首点失败根因。[Hijel 作者的 iOS 26.3 测试声明](https://github.com/HijelHub/HijelHID_BLEMouse/blob/609d78dcebfd52be9aa8fc057fec5fa7abaf0f4d/README.md#L15) 不能代替当前 iPhone/iOS26.5 的真实点击验收。
+- App `5631dbb` 的 [SDK 构建 38508270034](https://github.com/sjgw29d2nm/actell/actions/runs/38508270034) 成功，原文 `2026-10-14T03:53:16.0650840Z ** BUILD SUCCEEDED **`；App 1.12 已严格本地签名，尚未安装。此 App 候选只有测试定位调整，继续复用已交付的统一 USB／蓝牙首页入口。
+- Mac 随后设备检测原文 `[]`、`Device not found: usbmux has no device matching udid 00008101-000969E13E68001E`，板子原串口原文 `ls: /dev/cu.usbmodem5D010067491: No such file or directory`。已请求用户将手机与 COM 编程口接回 Mac；独立参考核对／固件构建继续，未把手机蓝牙已连接当成 Mac 安装／取证可用。
+- 固件提交 `6e3cbb763f7425997094af36e947ae5bf169bdea` 的实际 ESP-IDF 增量构建通过：App `642704` bytes、SHA256 `1962bd5f1e0ccbc362e706f61a4354622a4dafe50b79a54c4d1b4218d792f35a`，仍余 `405872` bytes。新 bootloader／分区与已验证基线逐字节一致；已固定候选并准备只写 App、目标核对／区域校验／受控启动的工具，尚未烧录。源比较只出现广告类别及说明注释变更；原 BH1／PA3／USB 互斥检查按未变更输入复用，无新增生产依赖。
+- App 1.12 无签名产物 `11869245623`、归档 SHA256 `fae1017c48624584a409732cffbce8a6f745255c7135c35cfc1a6230ac9294c6`，严格本机签名候选已准备。后续先用仍安装的 App 1.11／原测试序列验收新设备类别，再装 1.12 验收定位调整，分别记录，避免同时改两个变量而把结果归因给单项。当前鼠标实际点击仍未通过，物理更新／验收等待两个设备接回 Mac。
+
+### 2026-10-14 · iPhone 12 Pro Max 蓝牙鼠标实机通过
+
+- 用户重新接入手机及板子 COM 后，核对 iPhone UDID 与 ESP32-S3 MAC／串口，固件 `6e3cbb7` 仅写 App 区域 `0x10000`；写入、原 bootloader／分区与新 App 区域校验均返回 0，启动确认蓝牙广播、未启动硬件 Wi-Fi。NVS／蓝牙配对记录未覆盖。原文 `Flash write and region verification succeeded`、`Runtime boot and Bluetooth advertising verified; no hardware Wi-Fi startup`；本地清单 `.build/board-ble-hid-flash-6e3cbb7/manifest.json` 为 `flash_and_boot_verified`。
+- 先保持 App 1.11 的原测试序列，只更新固件类别；第一点击时原文 `2026-10-14T05:21:47Z test.cancelled`，随后 `test.cancelled_release 蓝牙键鼠已释放`、`id=76 verb=STOP phase=neutral_sent code=ok`，UI 没有点击。结果截图的小灰色指针仍在左上状态栏、画布上方，支持原有限回撤未进入画布的判断；未把单改广告类别宣称为首点修复。
+- 随后通过 USB 保留数据更新 App 1.12，安装后查询版本／来源确认为 `1.12`／`5631dbb2dbf5cb2871f948e56033d6182a57b056`，启动成功。自动测试只操作随办自身画布：原始 `canvas.global x=0.0 y=47.0 width=428.0 height=784.7`，两次真实 UI 事件分别为 `2026-10-14T05:25:48Z ui.tap count=1 x=86.3 y=110.3`、`2026-10-14T05:25:56Z ui.tap count=2 x=142.0 y=166.0`；实际位置距离 `78.7` 点。随后 `id=255 verb=STOP phase=neutral_sent code=ok`，原文 `2026-10-14T05:25:57Z PASS actual_motion actual_clicks=2 stop_neutral no_extra_tap`。结果截图显示 2/2 和两个实际事件标记，无需用户操作方向按钮。
+- 本地原始证据为 `.build/ble-hid-acceptance-20261014/app112-mouse-verification.log`、`app112-bh1-verification.log`、`app112-result.png`。观察工具的开始时间过滤错过已结束测试，随后从自身 App 直接取回完整日志，时间与这次安装启动一致；没有再次发送点击，也没有点击前截图，不把结果截图当作点击前指针证据。
+- 更新后复核智谱完整供应商配置／Keychain 引用与随办自身 647 bytes 配对身份保持一致。英文／中文输入沿用用户对 1.9 的实机确认，鼠标移动、两次实际点击及停止释放为本次新增实机证据。完整纯 BLE AI 的跨 App 截图、绝对定位／拖动，以及 Lightning 物理 USB 控制仍未验收；本次通过不代表这些路径已完成。
+
+### 2026-10-14 · 真实任务验收入口
+
+- 用户补充要求测试实际任务。增加仅 DEBUG 的显式真实任务入口，直接调用现有命令服务和当前供应商／Keychain，拒绝演示 fixture；只记录本次新会话的公开状态／工具错误，最多观察 45 秒，随后精确取消该轮并等待停止。诊断模式只抑制启动时自动恢复连接，设备工具的实际连接要求不放宽。
+- 另加一个独立 DEBUG 文件 `BluetoothNotesTaskVerification.swift`，用于有限的固定备忘录流程；复用现有 BH1／有限后台 lease，不增加生产依赖或 AI transport。Mac 打开系统备忘录并观察页面，手机仅按本轮随机 run_id 的固定顺序确认发送新建、粘贴、结束；新空白笔记须实际截图确认后才允许输入固定非敏感中文文本。报告回执不代表保存成功，最终还需重开备忘录验证。锁定、超时、未知结果或占用变化均停止，不重发动作。
+- 当前生产 AI 主流程仍选用 NCMDeviceBridge，没有接入 BLE 视觉控制桥；本机签名也未授权 Broadcast 扩展／共享组。真实模型任务与 Mac 辅助的固定蓝牙跨 App 流程分别验收，不能互相替代。源码／项目检查通过；本次原生构建、安装及真实任务结果待补。
+
+### 2026-10-14 · 用户实际任务的重复连接等待
+
+- 用户自行提交备忘录绘图任务后反馈响应慢，已按授权取手机截图及本轮持久化工具记录，没有替用户重新派发操作。实际起止 `2026-10-14T05:41:06.184195Z` 至 `05:42:44.045380Z`，耗时 `97.86` 秒；首工具在 `6.68` 秒后出现。本轮六项工具依次为 `run_task_now`、`load_skill`、`list_apps`、`list_apps`、`wait`、`list_apps`，三次 App 查询均失败，原文完全相同：`等待手机操控连接超时。未检测到硬件 USB 连接，请检查接线`。任务没有进入备忘录或绘图。证据仅本地 `.build/ble-hid-acceptance-20261014/user-task-slow-0548.png`、`user-notes-task-timing.json`，不上传手机画面／用户历史。
+- 根因定位为 `NCMDeviceBridge.prepareConnection` 每秒重新调用连接，`PairingFlow.verify` 明确失败后下一次又清空失败并重新验证，直到每个工具耗满 20 秒；普通工具错误又允许模型下一轮再次查询。新逻辑只发起一次连接；通过已有就绪／运行状态和 session 代际识别已结束的明确失败，立即返回并按代缓存。外部显式验证换代或就绪后允许新的观察，慢连接仍保留有界等待，取消／停止优先。
+- 专用 `AppError.deviceConnectionFailed` 只标记已确认的连接失败，设备工具据此结束本轮并释放；参数错误、普通临时不可用和未知动作仍保持既有处理。结束页优先显示首条连接失败并标为 blocked，避免同批未执行工具遮盖原因，不额外请求模型生成失败说明。USB 接口缺失且蓝牙已连接时，明确提示当前 AI 操控未接入蓝牙，停止反复尝试；没有自动切换通道。
+- 新增针对性回归覆盖，不删除原协议／停止释放／普通聊天／慢连接测试。候选源码检查与实际 SDK 构建分别记录；当前手机仍是 1.12，新诊断及快速失败修复尚未安装，完整 BLE AI 截图／执行链路仍未完成。
+- 提交 `673a1edc64cc9be013b0f8a200bb82009653b79a` 的 [原生检查 38519399449](https://github.com/sjgw29d2nm/actell/actions/runs/38519399449) 已通过 Source／project／USB wire、USB 协议回环及 iPhoneOS App 构建，产物 `11873581547` 已上传；原生模拟器 core／UI 回归仍在运行，不声明完整 CI 通过。直接提取生产 `prepareConnection`／fence／check 的 Swift/Foundation harness 九场景编译和运行通过，异步 20ms 失败实测 `51.887ms`、只尝试一次，同代三次观察共 `0.112ms` 且不重连；该结果不是实际手机任务耗时。记录 `.build/ncm-fast-failure-check/run.log`／`manifest.json`，手机仍未更新。
+
+### 2026-10-14 · 1.13 实机快速失败与蓝牙状态确认
+
+- 用户重新打开手机后，保留数据 USB 更新至 `1.13`，安装查询确认来源 `673a1edc64cc9be013b0f8a200bb82009653b79a`，启动成功。更新后智谱完整配置／Keychain 引用与此前本轮基线一致，647 bytes 随办自身配对身份保持一致；未刷写固件、清除蓝牙配对或修改系统输入法。
+- 显式真实模型诊断复测备忘录绘图目标，使用当前智谱 `glm-5.3-flash`。原文 `21.875 tool step=5 name=screenshot state=requested`、`22.415 tool step=5 name=screenshot state=failed public_error=未检测到硬件 USB 连接，请检查接线`、`22.418 probe.end phase=blocked release_confirmed=true`。全轮约 22.4 秒，首个设备工具约 0.54 秒后确认失败，没有再请求设备工具或模型重试；与先前 97.86 秒、三次 20 秒连接等待分别记录。模型前置请求仍耗时，未把快速失败当成任务成功，未执行备忘录或绘图。
+- 用户随后报告搜不到蓝牙。Mac 仍识别板子编程接口；未打开串口或重启板子，直接在 1.13 用保存的外围设备连接并核对指定硬件身份，仅发送 PING。实际原文 `1.110 connect.verified_board_id_match`、`1.189 ping.verified`、`1.203 hid.firmware.capability supported=true`、`1.206 probe.end bluetooth_connected=true`，确认该时刻板子蓝牙通信正常。固件只允许一个物理连接，成功连接后停止广播；这是已连接时扫描不可见的可能解释，不能据此宣称已复现所有查找失败。
+- 按用户要求再次抓取 14:41 手机截图，当前任务「查询 App」结果原文：`蓝牙硬件已连接，但当前版本的 AI 手机操控尚未接入蓝牙；未检测到可用的 USB 操控连接。本轮停止，请勿反复重试。` 这证明当前任务失败来自尚未接入 BLE 的 AI 主链，不能归因于板子蓝牙失效；需要补齐生产 BLE 任务执行及屏幕采集，现有键鼠验收不能代替完整任务。
+- 本地证据 `.build/task-fast-failure-acceptance-20261014/live-task-verification.log`、`app113-bluetooth-current.log`、`after-configuration-check.json`、`user-error-current.png`。手机画面／用户历史不上传。此轮没有新增生产代码；原生 core／UI 回归仍在运行，没有完整 CI 通过声明。

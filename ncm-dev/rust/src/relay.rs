@@ -20,6 +20,7 @@ pub struct RelayConnector {
     opened: AtomicBool,
     tunnel_opened: AtomicBool,
     local: Ipv4Addr,
+    subnet_mask: Ipv4Addr,
     relay: SocketAddr,
     lockdown: bool,
 }
@@ -36,6 +37,7 @@ impl RelayConnector {
             opened: AtomicBool::new(false),
             tunnel_opened: AtomicBool::new(false),
             local: Ipv4Addr::new(192, 168, 7, 2),
+            subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
             relay: ([192, 168, 7, 1], 28767).into(),
             lockdown: false,
         })
@@ -56,6 +58,7 @@ impl RelayConnector {
             opened: AtomicBool::new(false),
             tunnel_opened: AtomicBool::new(false),
             local: Ipv4Addr::LOCALHOST,
+            subnet_mask: Ipv4Addr::new(255, 255, 255, 0),
             relay: (Ipv4Addr::LOCALHOST, port).into(),
             lockdown: false,
         }
@@ -90,7 +93,7 @@ impl RelayConnector {
         };
         let socket = TcpSocket::new_v4()?;
         if self.interface_index != 0 {
-            bind_interface(&socket, self.interface_index)?;
+            bind_interface(&socket, self.interface_index, self.local, self.subnet_mask)?;
         }
         socket.bind((self.local, 0).into())?;
         let mut stream = tokio::time::timeout(Duration::from_secs(4), socket.connect(self.relay))
@@ -132,10 +135,16 @@ impl NcmConnector for RelayConnector {
     }
 }
 #[cfg(target_vendor = "apple")]
-fn bind_interface(socket: &TcpSocket, index: u32) -> io::Result<()> {
+fn bind_interface(
+    socket: &TcpSocket,
+    index: u32,
+    local: Ipv4Addr,
+    subnet_mask: Ipv4Addr,
+) -> io::Result<()> {
     use std::os::fd::AsRawFd;
     // Explicit Darwin socket binding. Never fall back if permission/interface
-    // validation fails. Swift independently selects .2/24 IFT_ETHER first.
+    // validation fails. Swift independently validates the selected link type
+    // and exact USB local address before entering this backend.
     let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
     if unsafe { libc::getifaddrs(&mut head) } != 0 {
         return Err(io::Error::last_os_error());
@@ -145,6 +154,7 @@ fn bind_interface(socket: &TcpSocket, index: u32) -> io::Result<()> {
     while !current.is_null() {
         let row = unsafe { &*current };
         if !row.ifa_addr.is_null()
+            && !row.ifa_name.is_null()
             && unsafe { (*row.ifa_addr).sa_family } == libc::AF_INET as u8
             && unsafe { libc::if_nametoindex(row.ifa_name) } == index
         {
@@ -159,8 +169,8 @@ fn bind_interface(socket: &TcpSocket, index: u32) -> io::Result<()> {
                 }
             };
             let flags = row.ifa_flags as i32;
-            if addr.sin_addr.s_addr.to_ne_bytes() == [192, 168, 7, 2]
-                && mask.to_ne_bytes() == [255, 255, 255, 0]
+            if addr.sin_addr.s_addr.to_ne_bytes() == local.octets()
+                && mask.to_ne_bytes() == subnet_mask.octets()
                 && flags & (libc::IFF_UP | libc::IFF_RUNNING) == (libc::IFF_UP | libc::IFF_RUNNING)
                 && flags & (libc::IFF_LOOPBACK | libc::IFF_POINTOPOINT) == 0
             {
@@ -189,7 +199,7 @@ fn bind_interface(socket: &TcpSocket, index: u32) -> io::Result<()> {
     }
 }
 #[cfg(not(target_vendor = "apple"))]
-fn bind_interface(_: &TcpSocket, _: u32) -> io::Result<()> {
+fn bind_interface(_: &TcpSocket, _: u32, _: Ipv4Addr, _: Ipv4Addr) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
@@ -197,6 +207,51 @@ fn bind_interface(_: &TcpSocket, _: u32) -> io::Result<()> {
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
+    #[test]
+    fn usb_configuration_keeps_fixed_binding_and_requires_current_catalog() {
+        let connector = RelayConnector::new(77, 7, 0).unwrap();
+        assert_eq!(connector.local, Ipv4Addr::new(192, 168, 7, 2));
+        assert_eq!(connector.subnet_mask, Ipv4Addr::new(255, 255, 255, 0));
+        assert_eq!(connector.relay, ([192, 168, 7, 1], 28767).into());
+        assert!(RelayConnector::new(0, 7, 0).is_err());
+        assert!(RelayConnector::new(77, 0, 0).is_err());
+        assert!(RelayConnector::new(77, 7, 16).is_err());
+    }
+    #[tokio::test]
+    async fn missing_usb_interface_fails_without_default_route_or_retry() {
+        let connector = RelayConnector::new(u32::MAX, 7, 0).unwrap();
+        assert!(connector.connect(Purpose::PairVerify).await.is_err());
+        assert!(connector.connect(Purpose::PairVerify).await.is_err());
+    }
+    #[tokio::test]
+    async fn lockdown_stream_preserves_nl1_framing_and_single_use() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let mut connector = RelayConnector::loopback(listener.local_addr().unwrap().port());
+        connector.lockdown = true;
+        let mock = tokio::spawn(async move {
+            let (mut peer, _) = listener.accept().await.unwrap();
+            let mut line = Vec::new();
+            loop {
+                let byte = peer.read_u8().await.unwrap();
+                if byte == b'\n' { break; }
+                line.push(byte);
+            }
+            let text = String::from_utf8(line).unwrap();
+            let parts: Vec<_> = text.split(' ').collect();
+            assert_eq!(&parts[..2], &["NL1", "OPEN"]);
+            assert_eq!(parts.len(), 3);
+            assert_eq!(parts[2].len(), 32);
+            peer.write_all(b"NL1 OK\nNEXT").await.unwrap();
+        });
+        let mut stream = connector.connect(Purpose::LockdownSession).await.unwrap();
+        let mut next = [0; 4];
+        stream.read_exact(&mut next).await.unwrap();
+        assert_eq!(&next, b"NEXT");
+        assert!(connector.connect(Purpose::LockdownSession).await.is_err());
+        assert!(connector.connect(Purpose::PairVerify).await.is_err());
+        assert!(connector.connect(Purpose::NegotiatedTunnel { port: 54321 }).await.is_err());
+        mock.await.unwrap();
+    }
     #[tokio::test]
     async fn exact_two_streams_share_nonce_and_no_extra_bytes_are_consumed() {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();

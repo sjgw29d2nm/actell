@@ -58,10 +58,10 @@ struct AgentLimits: Sendable {
     let maxOutputTokens: Int? = nil
 }
 enum AppError: LocalizedError, Equatable {
-    case invalid(String), unavailable(String), protocolViolation(String), stopped, timeout, unknownOutcome
+    case invalid(String), unavailable(String), deviceConnectionFailed(String), protocolViolation(String), stopped, timeout, unknownOutcome
     var errorDescription: String? {
         switch self {
-        case .invalid(let s), .unavailable(let s), .protocolViolation(let s): return s
+        case .invalid(let s), .unavailable(let s), .deviceConnectionFailed(let s), .protocolViolation(let s): return s
         case .stopped: return "已停止"
         case .timeout: return "桥接超时，已断开；没有自动重发动作"
         case .unknownOutcome: return "动作结果未知；未自动重发。"

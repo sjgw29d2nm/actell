@@ -31,12 +31,25 @@ import ProviderCore
     var connectionStopID: UUID? = UUID()
     var allowsConnectionWait = false
     var connectionDelay: Duration?
+    var connectionFailureDelay: Duration?
+    var connectionFailureMessage = "未检测到硬件 USB 连接，请检查接线"
     var connectionAttempts = 0
     private var connectionTask: Task<Void, Never>?
     func connectIfNeeded() throws {
         connectionAttempts += 1
         guard allowsConnectionWait else {
             if !ready { throw NCMControlError.unavailable(connectionFailure ?? "ESP32 未连接") }
+            return
+        }
+        if let connectionFailureDelay, connectionTask == nil {
+            let attempt = UUID()
+            controlSessionID = attempt; running = true; connectionFailure = nil
+            connectionTask = Task { @MainActor in
+                do { try await Task.sleep(for: connectionFailureDelay) } catch { return }
+                guard self.controlSessionID == attempt else { return }
+                self.connectionFailure = self.connectionFailureMessage
+                self.running = false; self.connectionTask = nil
+            }
             return
         }
         if let connectionDelay, connectionTask == nil {
@@ -483,6 +496,86 @@ import ProviderCore
         catch { XCTAssertTrue(error.localizedDescription.contains("连接超时")) }
         XCTAssertEqual(absent.captures, 0)
         await waiting.stop()
+    }
+    func testCompletedAsyncConnectionFailureReturnsBeforeBudgetWithoutRetry() async throws {
+        let connection = NCMConnectionSpy()
+        connection.ready = false; connection.allowsConnectionWait = true
+        connection.connectionFailureDelay = .milliseconds(20)
+        let previous = connection.controlSessionID
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(1))
+        let began = ContinuousClock.now
+        do { _ = try await bridge.installedApplications(); XCTFail("Completed verification failure must return") }
+        catch { XCTAssertEqual(error as? AppError, .deviceConnectionFailed(connection.connectionFailureMessage)) }
+        XCTAssertLessThan(began.duration(to: .now), .milliseconds(500))
+        XCTAssertEqual(connection.connectionAttempts, 1)
+        XCTAssertFalse(connection.running); XCTAssertFalse(connection.ready)
+        XCTAssertNotEqual(connection.controlSessionID, previous)
+        XCTAssertEqual(connection.captures, 0); XCTAssertEqual(connection.appQueries, 0)
+        XCTAssertTrue(connection.systemActions.isEmpty)
+        await bridge.stop()
+    }
+    func testCachedConnectionFailureBlocksReadAndSystemToolsWithoutAnotherAttempt() async throws {
+        let connection = NCMConnectionSpy()
+        connection.ready = false; connection.allowsConnectionWait = true
+        connection.connectionFailureDelay = .milliseconds(20)
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(1))
+        let expected = AppError.deviceConnectionFailed(connection.connectionFailureMessage)
+        do { _ = try await bridge.installedApplications(); XCTFail("Expected completed verification failure") }
+        catch { XCTAssertEqual(error as? AppError, expected) }
+        let failedAttempt = connection.controlSessionID
+        let began = ContinuousClock.now
+        do { _ = try await bridge.screenshot(); XCTFail("Cached failure must block screenshot") }
+        catch { XCTAssertEqual(error as? AppError, expected) }
+        do { _ = try await bridge.installedApplications(); XCTFail("Cached failure must block App query") }
+        catch { XCTAssertEqual(error as? AppError, expected) }
+        do { _ = try await bridge.systemActionContext(); XCTFail("Cached failure must block system action preflight") }
+        catch { XCTAssertEqual(error as? AppError, expected) }
+        XCTAssertLessThan(began.duration(to: .now), .milliseconds(500))
+        XCTAssertEqual(connection.connectionAttempts, 1)
+        XCTAssertEqual(connection.controlSessionID, failedAttempt)
+        XCTAssertEqual(connection.captures, 0); XCTAssertEqual(connection.appQueries, 0)
+        XCTAssertEqual(connection.taps, 0); XCTAssertTrue(connection.drags.isEmpty)
+        XCTAssertTrue(connection.systemActions.isEmpty)
+        await bridge.stop()
+    }
+    func testExplicitNewConnectionGenerationAndReadyRecoverCachedFailure() async throws {
+        let connection = NCMConnectionSpy()
+        connection.ready = false; connection.allowsConnectionWait = true
+        connection.connectionFailureDelay = .milliseconds(20)
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(1))
+        do { _ = try await bridge.screenshot(); XCTFail("Expected completed verification failure") }
+        catch { XCTAssertEqual(error as? AppError, .deviceConnectionFailed(connection.connectionFailureMessage)) }
+        let failedAttempt = connection.controlSessionID
+        connection.controlSessionID = UUID()
+        connection.connectionFailure = nil; connection.ready = true
+        let frame = try await bridge.screenshot()
+        XCTAssertFalse(frame.isDemo); XCTAssertEqual(frame.width, 10); XCTAssertEqual(frame.height, 20)
+        _ = try await bridge.installedApplications()
+        let context = try await bridge.systemActionContext()
+        XCTAssertTrue(context.contains(connection.controlSessionID.uuidString))
+        XCTAssertNotEqual(connection.controlSessionID, failedAttempt)
+        XCTAssertEqual(connection.connectionAttempts, 1)
+        XCTAssertEqual(connection.captures, 1); XCTAssertEqual(connection.appQueries, 1)
+        XCTAssertTrue(connection.systemActions.isEmpty)
+        await bridge.stop()
+    }
+    func testExplicitStopTakesPriorityOverCachedConnectionFailure() async throws {
+        let connection = NCMConnectionSpy()
+        connection.ready = false; connection.allowsConnectionWait = true
+        connection.connectionFailureDelay = .milliseconds(20)
+        let bridge = try NCMDeviceBridge(flow: connection, connectionTimeout: .seconds(1))
+        do { _ = try await bridge.installedApplications(); XCTFail("Expected completed verification failure") }
+        catch { XCTAssertEqual(error as? AppError, .deviceConnectionFailed(connection.connectionFailureMessage)) }
+        await bridge.stop()
+        do { _ = try await bridge.screenshot(); XCTFail("Stop must fence cached screenshot failure") }
+        catch { XCTAssertEqual(error as? AppError, .stopped) }
+        do { _ = try await bridge.installedApplications(); XCTFail("Stop must fence cached query failure") }
+        catch { XCTAssertEqual(error as? AppError, .stopped) }
+        do { _ = try await bridge.systemActionContext(); XCTFail("Stop must fence cached system action failure") }
+        catch { XCTAssertEqual(error as? AppError, .stopped) }
+        XCTAssertEqual(connection.connectionAttempts, 1)
+        XCTAssertEqual(connection.captures, 0); XCTAssertEqual(connection.appQueries, 0)
+        XCTAssertTrue(connection.systemActions.isEmpty)
     }
     func testExplicitStopInterruptsConnectionWaitWithoutDispatch() async throws {
         let connection = NCMConnectionSpy()

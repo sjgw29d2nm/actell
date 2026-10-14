@@ -7,6 +7,7 @@ settings:
   base:
     GENERATE_INFOPLIST_FILE: YES
     APP_DISPLAY_NAME: 随办
+    BROADCAST_APP_GROUP_IDENTIFIER: group.com.ja1chen.PhoneAgent
     SWIFT_VERSION: '5.0'
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: ''
@@ -46,9 +47,12 @@ targets:
         'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios/release']
         'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../.build/ncm-rust/aarch64-apple-ios-sim/release']
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: PhoneAgent/PhoneAgent.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: com.ja1chen.PhoneAgent
         INFOPLIST_FILE: PhoneAgent/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: $(APP_DISPLAY_NAME)
+        INFOPLIST_KEY_SuibanBroadcastAppGroup: $(BROADCAST_APP_GROUP_IDENTIFIER)
+        INFOPLIST_KEY_SuibanBroadcastExtensionBundleIdentifier: com.ja1chen.PhoneAgent.BroadcastUpload
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Connect to your explicitly paired development bridge while this app is open.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -68,6 +72,8 @@ targets:
     dependencies:
       - target: PhoneAgentLiveActivity
         embed: true
+      - target: PhoneAgentBroadcast
+        embed: true
       - package: SwiftAgentKit
         product: SwiftAgentKit
       - package: ProviderKit
@@ -85,6 +91,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ja1chen.PhoneAgent.LiveActivity
         INFOPLIST_FILE: PhoneAgentLiveActivity/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: $(APP_DISPLAY_NAME)
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+  PhoneAgentBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - PhoneAgentBroadcast
+      - PhoneAgent/Capture/ReplayKitBroadcastStore.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ja1chen.PhoneAgent.BroadcastUpload
+        INFOPLIST_FILE: PhoneAgentBroadcast/Info.plist
+        CODE_SIGN_ENTITLEMENTS: PhoneAgentBroadcast/PhoneAgentBroadcast.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
   PhoneAgentTests:

@@ -1,14 +1,17 @@
 // Runs production main.c and its ledger/motion on POSIX TCP. USB is simulated.
 #include "usb_device.h"
 #include "developer_service.h"
+#include "bluetooth_board.h"
 #include "hid_motion.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <signal.h>
+#include <stdatomic.h>
 static pa_motion motion;
 static bool hid_enabled;
 static volatile sig_atomic_t bus_epoch, stall_release;
+static atomic_bool input_gate;
 static void toggle_release_stall(int signal) { (void)signal; stall_release=!stall_release; }
 static void suspend_resume(int signal) { (void)signal; bus_epoch++; }
 int64_t esp_timer_get_time(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec*1000000LL+t.tv_nsec/1000; }
@@ -17,6 +20,13 @@ esp_err_t usb_network_start(void) { hid_enabled=getenv("PA_TEST_HID")!=NULL; ret
 esp_err_t developer_service_start(bool (*online)(void), uint32_t (*epoch)(void), uint32_t index) {
     (void)online; (void)epoch; (void)index; return ESP_OK;
 }
+bool developer_service_reserve_input(void) {
+    bool expected=false;return atomic_compare_exchange_strong(&input_gate,&expected,true);
+}
+void developer_service_release_input(void) { atomic_store(&input_gate,false); }
+// Bluetooth setup is outside this PA3 loopback harness; production keeps USB
+// alive when Bluetooth is unavailable. Relay ownership is checked separately.
+esp_err_t bluetooth_board_start(void) { return ESP_FAIL; }
 uint32_t usb_network_index(void) { return 1; }
 uint32_t usb_epoch(void) { return (uint32_t)bus_epoch; }
 bool usb_online(void) { return true; }

@@ -16,17 +16,25 @@ import Network
     private var timer: Task<Void, Never>?
     public init() {}
 
-    public func request(_ command: DiagnosticCommand) async throws -> DiagnosticReply {
+    /// Hardware networking is USB only. An invalid or ambiguous interface
+    /// fails closed; the phone's own Wi-Fi/cellular network is never a fallback.
+    public static func selectHardwareTransport() throws -> HardwareRelayTransport {
+        _ = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory())
+        return .usb
+    }
+
+    public func request(_ command: DiagnosticCommand, transport: HardwareRelayTransport = .usb) async throws -> DiagnosticReply {
         guard pending == nil else { throw NCMError.busy }
         try Task.checkCancellation()
-        let binding = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory())
+        let binding = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory(), transport: transport)
         let connection = NWConnection(host: .ipv4(binding.remoteAddress), port: 28767, using: binding.parameters())
         return try await exchange(command, connection: connection)
     }
-    // Internal test seam: the public path always resolves and binds actual NCM.
+    // Internal test seam: the public path always resolves and binds the selected interface.
     func exchange(_ command: DiagnosticCommand, connection: NWConnection, timeout: Duration = .seconds(7)) async throws -> DiagnosticReply {
         guard pending == nil else { throw NCMError.busy }
         try Task.checkCancellation()
+        let wireBytes = Data(command.wire.utf8)
         let id = UUID()
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
@@ -40,7 +48,7 @@ import Network
                         case .ready:
                             guard self.pending?.sent == false else { return }
                             self.pending?.sent = true
-                            connection.send(content: Data(command.wire.utf8), completion: .contentProcessed { [weak self] error in
+                            connection.send(content: wireBytes, completion: .contentProcessed { [weak self] error in
                                 Task { @MainActor [weak self] in
                                     if error != nil { self?.finish(id, .failure(NCMError.network)) }
                                     else { self?.receive(id) }

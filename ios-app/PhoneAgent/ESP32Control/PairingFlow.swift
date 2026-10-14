@@ -13,6 +13,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     private let client = NCMProbeClient()
     private let localDiscovery = LocalVPNDiscovery()
     private(set) var route: DeviceControlRoute
+    private(set) var hardwareTransport: HardwareRelayTransport?
+    var hardwareConnectionLabel: String {
+        guard let hardwareTransport else { return "未连接" }
+        switch hardwareTransport { case .usb: return "USB" }
+    }
     private let defaults: UserDefaults
     private static let vpnConfigurationKey = "vpnLoopbackConfiguration"
     private(set) var vpnConfiguration: VPNLoopbackConfiguration
@@ -26,7 +31,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         lastFailure = nil
         message = "配置已保存，请重新连接"
     }
-    var canChangeRoute: Bool { !running && !agentReserved && connectionUsers.isEmpty && !mediaLifetime.stopping }
+    var canChangeRoute: Bool { !running && !agentReserved && connectionUsers.isEmpty && !mediaLifetime.stopping && !BluetoothHIDTransport.shared.busy }
     @discardableResult func selectRoute(_ selected: DeviceControlRoute) -> Bool {
         guard selected != .localCaptureUSB, canChangeRoute else { return false }
         guard selected != route else { return true }
@@ -55,6 +60,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     private var heartbeatTask: Task<Void, Never>?
     private var heartbeatEpoch = UUID()
     private var maintenanceBusy = false
+    private var automaticRestoreSuppressed = false
     private var backgroundTask: BGTask?
     private var operationLease: ExecutionTransitionLease?
     private(set) var capturing = false
@@ -63,6 +69,10 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     var lastFailure: String?
     var ready = false
     var hasRecord = false
+    var supportsOnDevicePairing: Bool {
+        if #available(iOS 27.0, *) { return true }
+        return false
+    }
     var pin: String?
     var message = "请先完成系统配对"
     var image: UIImage?
@@ -90,7 +100,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
 
     /// User explicitly requests new system authorization, even if a local identity remains.
     func resetPairing() {
-        guard !running, !agentReserved else { return }
+        guard canChangeRoute else { return }
         cancel()
         do {
             try store.remove(); hasRecord = false; lastFailure = nil; pin = nil
@@ -100,7 +110,12 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         }
     }
     func pairAgain() {
-        guard !running, !agentReserved else { return }
+        guard canChangeRoute else { return }
+        guard supportsOnDevicePairing else {
+            message = "当前系统重新授权需连接 Mac；已保存的手机授权会保留"
+            lastFailure = message
+            return
+        }
         resetPairing()
         if !hasRecord { startPairing() }
     }
@@ -117,9 +132,14 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         }
     }
     func startPairing() {
-        guard !running else { return }
+        guard !running, !agentReserved, !BluetoothHIDTransport.shared.busy else { return }
         hasRecord = store.exists
         guard !hasRecord else { message = "请连接 \(route.connectionName)"; return }
+        guard supportsOnDevicePairing else {
+            message = "当前 iOS 首次手机操控授权需通过 Mac 完成；授权保存后可使用 USB"
+            lastFailure = message
+            return
+        }
         guard registeredBackgroundTask else { message = "系统配对后台任务未注册，请重新打开 App"; return }
         guard #available(iOS 26.0, *) else { message = "系统交互配对需要 iOS 26 或更新版本的持续后台任务"; return }
         generation = UUID(); running = true; pairingActive = true; message = "正在申请配对后台任务，请等待入口就绪"
@@ -177,6 +197,11 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         running = false; pairingActive = false; job = nil; hasRecord = store.exists
     }
     func cancel() {
+        automaticRestoreSuppressed = true
+        if let transport = hardwareTransport {
+            HardwareConnectionHistory.shared.recordConnection(transport: transport, success: false, message: "连接已停止")
+        }
+        hardwareTransport = nil
         connectionStopID = UUID()
         mediaLifetime.revoke()
         operationLease?.complete(success: false); operationLease = nil
@@ -205,23 +230,25 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     func restoreConnection() {
         hasRecord = store.exists
-        if hasRecord, !pairingActive, !running, !ready { verify() }
+        if !automaticRestoreSuppressed, hasRecord, !pairingActive, !running, !ready, !BluetoothHIDTransport.shared.busy { verify() }
     }
     /// Called only by a device tool or App startup, never by normal chat.
     /// Concurrent waiters share the same verification job.
     func connectIfNeeded() throws {
+        guard !BluetoothHIDTransport.shared.busy else { throw NCMControlError.unavailable("蓝牙输入正在使用硬件，请先停止并释放，再连接 USB") }
         hasRecord = store.exists
         if ready || pairingActive { return }
         guard hasRecord else { throw NCMControlError.unavailable("请先在设置 → 手机操控 → 连接与验证中完成系统配对") }
         if !running && !agentReserved { verify() }
     }
     func verify() {
-        guard !running, !agentReserved, store.exists else { return }
+        guard !running, !agentReserved, !BluetoothHIDTransport.shared.busy, store.exists else { return }
+        automaticRestoreSuppressed = false
         let previousMaintenance = heartbeatTask
         stopHeartbeat()
         mediaLifetime.revoke()
         generation = UUID(); controlSessionID = UUID(); let epoch = generation
-        running = true; ready = false; mediaStarted = false; image = nil; screenshotData = nil; lastFailure = nil; backend.close()
+        running = true; ready = false; mediaStarted = false; hardwareTransport = nil; image = nil; screenshotData = nil; lastFailure = nil; backend.close()
         beginOperationLease(epoch: epoch)
         job = Task { @MainActor in
             defer { if generation == epoch { finishOperationLease(); running = false; job = nil } }
@@ -239,22 +266,33 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     message = "正在经 VPN 回环验证身份并建立 CoreDevice 隧道"
                     try await backend.connectLocalVPN(identity: identity, authorization: authorization, pairingPort: port, configuration: configuration)
                 } else {
-                    message = "正在从随办硬件v1 发现手机 RemotePairing 服务"
-                    var discovery = try await client.request(.discoverIPv4)
+                    // Select once. Every socket in this attempt remains bound to
+                    // the same USB transport; a cable change cannot replay it.
+                    let transport = try NCMProbeClient.selectHardwareTransport()
+                    hardwareTransport = transport
+                    message = "正在通过 \(hardwareConnectionLabel) 发现手机服务"
+                    var discovery = try await client.request(.discoverIPv4, transport: transport)
                     if discovery.endpoints?.contains(where: { $0.service == "remotepairing" }) != true {
-                        discovery = try await client.request(.discoverIPv6)
+                        discovery = try await client.request(.discoverIPv6, transport: transport)
                     }
                     try Task.checkCancellation(); guard generation == epoch else { return }
                     guard let endpoint = discovery.endpoints?.first(where: { $0.service == "remotepairing" }) else {
                         throw NCMControlError.unavailable("未发现手机服务，请检查随办硬件v1 连接")
                     }
-                    message = "正在经随办硬件v1 验证身份并建立开发者隧道"
-                    try await backend.connect(identity: identity, authorization: authorization, discovery: discovery, endpoint: endpoint)
+                    message = "正在通过 \(hardwareConnectionLabel) 验证身份并建立开发者隧道"
+                    try await backend.connect(identity: identity, authorization: authorization, discovery: discovery, endpoint: endpoint, transport: transport)
                 }
                 try await backend.checkDeveloperReadiness()
                 try Task.checkCancellation(); guard generation == epoch else { return }
                 ready = true; startHeartbeat(); message = "\(route.connectionName) 认证、开发者隧道和服务检查成功，可测试截图与输入"
-            } catch { guard generation == epoch else { return }; backend.close(); message = failure(error); lastFailure = message }
+                if let transport = hardwareTransport {
+                    HardwareConnectionHistory.shared.recordConnection(transport: transport, success: true, message: "身份与服务验证成功")
+                }
+            } catch {
+                guard generation == epoch else { return }
+                backend.close(); message = failure(error); lastFailure = message
+                recordHardwareDisconnection("连接验证未成功")
+            }
         }
     }
     #if DEBUG
@@ -310,6 +348,8 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     lastFailure = message
                 } else {
                     stopHeartbeat(); ready = false; mediaStarted = false; backend.close()
+                    image = nil; screenshotData = nil; invalidateAgentSession()
+                    recordHardwareDisconnection("连接中断；本次操作不自动重试")
                     message = failure(error) + "；请重新连接 \(route.connectionName)"; lastFailure = message
                 }
             }
@@ -366,6 +406,8 @@ enum NCMControlError: Error { case unavailable(String), stopped }
             }
             message = failure(error) + "；请重新连接 \(route.connectionName)"; lastFailure = message
             stopHeartbeat(); ready = false; mediaStarted = false; backend.close()
+            image = nil; screenshotData = nil
+            recordHardwareDisconnection("任务连接中断；结果未知的操作不自动重试")
             invalidateAgentSession(); running = false
             throw NCMControlError.unavailable(message)
         }
@@ -458,6 +500,12 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     private func stopHeartbeat() {
         heartbeatEpoch = UUID(); heartbeatTask?.cancel(); heartbeatTask = nil; maintenanceBusy = false
     }
+    private func recordHardwareDisconnection(_ detail: String) {
+        if let transport = hardwareTransport {
+            HardwareConnectionHistory.shared.recordConnection(transport: transport, success: false, message: detail)
+        }
+        hardwareTransport = nil
+    }
     /// Read-only service traffic keeps the ESP32's 60-second relay idle lease alive.
     /// Shares the operation gate; never overlaps a screenshot or touch request.
     private func startHeartbeat(immediate: Bool = false) {
@@ -478,6 +526,8 @@ enum NCMControlError: Error { case unavailable(String), stopped }
                     guard self.heartbeatEpoch == epoch else { return }
                     self.maintenanceBusy = false; self.ready = false; self.mediaStarted = false; self.running = false
                     self.backend.close(); self.invalidateAgentSession()
+                    self.image = nil; self.screenshotData = nil
+                    self.recordHardwareDisconnection("连接保活失败，请重新验证")
                     self.message = "连接保活失败：" + self.failure(error) + "；请重新连接 \(route.connectionName)"
                     self.lastFailure = self.message
                     return
@@ -487,6 +537,20 @@ enum NCMControlError: Error { case unavailable(String), stopped }
     }
     private func failure(_ error: Error) -> String {
         if case NCMControlError.unavailable(let message) = error { return message }
+        if let probeError = error as? NCMError {
+            switch probeError {
+            case .interfaceUnavailable:
+                if BluetoothBoardFlow.shared.connected {
+                    return "蓝牙硬件已连接，但当前版本的 AI 手机操控尚未接入蓝牙；未检测到可用的 USB 操控连接。本轮停止，请勿反复重试。"
+                }
+                return "未检测到硬件 USB 连接，请检查接线"
+            case .interfaceAmbiguous: return "检测到多个硬件网络接口，请断开多余连接后重新验证"
+            case .interfaceInvalid: return "硬件 USB 网络地址或接口不匹配，请检查 USB 连接"
+            case .timeout: return "硬件响应超时，请靠近硬件并重新验证"
+            case .busy: return "硬件连接正在处理其他请求，请稍后重试"
+            default: return "硬件通信未成功，请检查供电、已保存的硬件和本地网络权限"
+            }
+        }
         if let vpnError = error as? LocalVPNError {
             switch vpnError {
             case .inactive: return "未找到 VPN 接口 \(vpnConfiguration.localAddress)，请检查 VPN 是否开启及地址配置"
@@ -519,7 +583,7 @@ enum NCMControlError: Error { case unavailable(String), stopped }
         if error is CancellationError { return "已停止" }
         return route == .vpnLoopback
             ? "连接失败，请检查 VPN 回环配置、开发者模式及本地网络权限"
-            : "连接失败，请检查随办硬件v1 固件、USB 网络接口和本地网络权限"
+            : "连接失败，请检查随办硬件v1 供电、USB 和本地网络权限"
     }
     #if DEBUG
     private var backgroundProbeStarted = false
@@ -615,7 +679,7 @@ struct PairingSection: View {
         return flow.hasRecord ? "未连接" : "未配对"
     }
     private var showsDetail: Bool {
-        (flow.running && !flow.ready) ||
+        flow.lastFailure != nil || (flow.running && !flow.ready) ||
         (!flow.hasRecord && flow.message != "请先完成系统配对")
     }
     var body: some View {
@@ -638,14 +702,15 @@ struct PairingSection: View {
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 8) {
-                    if !flow.ready && !flow.running && !flow.agentReserved {
-                        Button(flow.hasRecord ? "连接" : "配对") {
+                    if !flow.ready && !flow.running && !flow.agentReserved && (flow.hasRecord || flow.supportsOnDevicePairing) {
+                        Button(flow.route == .ncmDeveloper ? (flow.hasRecord ? "连接并检查" : "授权手机操控") : (flow.hasRecord ? "连接" : "配对")) {
                             if flow.hasRecord { flow.verify() }
                             else { flow.startPairing() }
-                        }.disabled(flow.running || flow.agentReserved)
+                        }.disabled(!flow.canChangeRoute)
                     }
-                    if !flow.ready && flow.hasRecord && !flow.running && !flow.agentReserved {
+                    if !flow.ready && flow.hasRecord && !flow.running && !flow.agentReserved && flow.supportsOnDevicePairing {
                         Button("重新配对") { flow.pairAgain() }
+                            .disabled(!flow.canChangeRoute)
                             .accessibilityIdentifier("pairAgain")
                     }
                     if flow.running || flow.ready || flow.agentReserved {
@@ -655,6 +720,12 @@ struct PairingSection: View {
                 .buttonStyle(.bordered)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
+            }
+        } header: {
+            Text(flow.route == .ncmDeveloper ? "手机操控连接" : "连接与验证")
+        } footer: {
+            if !flow.hasRecord && !flow.supportsOnDevicePairing {
+                Text("当前 iOS 首次授权需将手机连接 Mac 完成，蓝牙配对不能代替手机开发者服务授权。授权会保存，之后可直接连接 USB。")
             }
         }
         if flow.ready {

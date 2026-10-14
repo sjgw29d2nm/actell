@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>查找并连接你选择的随办硬件v1，由硬件通过蓝牙键鼠执行你授权的输入操作。</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).backgroundRun.*</string>
@@ -18,6 +20,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>SuibanBroadcastAppGroup</key>
+	<string>$(BROADCAST_APP_GROUP_IDENTIFIER)</string>
+	<key>SuibanBroadcastExtensionBundleIdentifier</key>
+	<string>com.ja1chen.PhoneAgent.BroadcastUpload</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_remotepairing-pairable-host._tcp</string>
@@ -28,6 +34,7 @@
 		<string>screen-capture</string>
 		<string>processing</string>
 		<string>audio</string>
+		<string>bluetooth-central</string>
 	</array>
 </dict>
 </plist>

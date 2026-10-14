@@ -30,6 +30,9 @@ static bool token(const char **cursor,char out[33]) {
 bridge_status nd_relay_prepare(nd_relay *s,const nd_server *catalog,const nd_link *link,const char *line,nd_relay_job *job) {
     if(!s||!catalog||!link||!line||!job||strlen(line)>ND_RELAY_LINE_LIMIT)return BRIDGE_E_ARGUMENT;
     bool busy=nd_relay_busy(s);const char *p=line;char nonce[33]={0};unsigned bit=0;nd_endpoint target={0};
+    /* One relay owner across USB and Wi-Fi. A matching nonce alone cannot
+     * join or cancel another physical link's authenticated session. */
+    if(busy&&(s->base.interface_index!=link->interface_index||memcmp(s->base.local4,link->local4,4)||memcmp(s->base.peer4,link->peer4,4)))return BRIDGE_E_NOT_FOUND;
     if(!strncmp(p,"NL1 OPEN ",9)){
         p+=9;if(strlen(p)!=32||!token(&p,nonce)||*p)return BRIDGE_E_FORMAT;
         if(busy)return BRIDGE_E_LIMIT;

@@ -4,6 +4,12 @@ import Foundation
 import Network
 import Darwin
 
+/// A connection attempt selects this once; probe and backend calls reuse it.
+/// A disconnected transport fails rather than changing a running session.
+public enum HardwareRelayTransport: Sendable, Equatable {
+    case usb
+}
+
 struct NCMInterfaceBinding {
     static let localIP = "192.168.7.2"
     static let remoteIP = "192.168.7.1"
@@ -34,6 +40,18 @@ struct NCMInterfaceBinding {
         }
         return row
     }
+    /// A router can assign the USB subnet's .2 address to real Wi-Fi. Only
+    /// explicitly recognized Wi-Fi/cellular rows are excluded from USB candidates.
+    static func usbCandidates(_ rows: [Row]) throws -> [Row] {
+        try rows.filter { row in
+            guard row.address == localIP else { return false }
+            guard let scoped = IPv4Address("\(row.address)%\(row.name)"), let interface = scoped.interface,
+                  interface.name == row.name, interface.index == Int(row.index) else {
+                throw NCMError.interfaceScopeUnsupported
+            }
+            return interface.type != .wifi && interface.type != .cellular
+        }
+    }
     static func validateType(_ type: NWInterface.InterfaceType) throws {
         switch type {
         case .wiredEthernet, .other: break // .other additionally requires IFT_ETHER and no POINTOPOINT above.
@@ -41,7 +59,7 @@ struct NCMInterfaceBinding {
         }
     }
     static func resolve(_ rows: [Row]) throws -> NCMInterfaceBinding {
-        let row = try select(rows)
+        let row = try select(usbCandidates(rows))
         // Compatibility workaround inherited from PA3: IPv4 %scope parsing is not
         // explicitly guaranteed by Apple documentation. Validate it and fail closed.
         // Validate the result; unsupported/stale scopes fail instead of unbinding.
@@ -53,6 +71,11 @@ struct NCMInterfaceBinding {
         }
         try validateType(interface.type)
         return NCMInterfaceBinding(row: row, interface: interface, localAddress: local, remoteAddress: remote)
+    }
+    static func resolve(_ rows: [Row], transport: HardwareRelayTransport) throws -> NCMInterfaceBinding {
+        switch transport {
+        case .usb: return try resolve(rows)
+        }
     }
     func parameters() -> NWParameters {
         let parameters = NWParameters.tcp

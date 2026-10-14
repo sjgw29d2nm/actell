@@ -89,9 +89,14 @@ struct SettingsView: View {
                         Text(DeviceControlRoute.ncmDeveloper.title).tag(DeviceControlRoute.ncmDeveloper)
                     }.disabled(model.hasBusySessions || !control.canChangeRoute)
                         .accessibilityIdentifier("deviceControlMode")
-                    NavigationLink { ESP32ControlSettingsView() } label: {
-                        Label("连接与验证", systemImage: "iphone")
-                    }.accessibilityIdentifier("esp32ControlSettings")
+                    if control.route == .vpnLoopback {
+                        NavigationLink { ESP32ControlSettingsView() } label: {
+                            Label("VPN 回环配置与验证", systemImage: "iphone")
+                        }.accessibilityIdentifier("esp32ControlSettings")
+                    }
+                    NavigationLink { HardwareWirelessSettingsView() } label: {
+                        Label("硬件设置", systemImage: "cable.connector")
+                    }.accessibilityIdentifier("suibanHardwareSettings")
                 }
                 Section {
                     Picker("后台运行方式", selection: $backgroundMode) {

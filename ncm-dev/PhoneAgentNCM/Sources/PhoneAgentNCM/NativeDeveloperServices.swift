@@ -69,16 +69,17 @@ public enum InputDelivery: Sendable { case reportsWrittenVisualEffectUnverified 
         if old != 0 { ncm_backend_close(old) }
     }
     /// Caller must refresh discovery just before this call (candidate TTL).
-    /// Bind to the actual .2/24 Ethernet interface, never default routing.
+    /// Bind to the actual selected .2/24 interface, never default routing.
     public func connect(identity: AuthorizedRemoteIdentity, authorization: ExistingSessionAuthorization,
-                        discovery: DiagnosticReply, endpoint: DiagnosticReply.Endpoint) async throws {
+                        discovery: DiagnosticReply, endpoint: DiagnosticReply.Endpoint,
+                        transport: HardwareRelayTransport = .usb) async throws {
         try Task.checkCancellation()
         guard authorization.verifyExistingIdentity else { throw NativeBackendError.authorizationRequired }
         guard !busy, handle == 0 else { throw NativeBackendError.busy }
         guard Self.linkedABIVersion == NCM_BACKEND_ABI else { throw NativeBackendError.unsupportedABI }
         guard let generation = discovery.generation, generation > 0, endpoint.service == "remotepairing",
               discovery.endpoints?.contains(where: { $0.index == endpoint.index && $0.family == endpoint.family && $0.port == endpoint.port && $0.service == endpoint.service }) == true else { throw NativeBackendError.invalidCandidate }
-        let row = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory()).row
+        let row = try NCMInterfaceBinding.resolve(NCMInterfaceBinding.inventory(), transport: transport).row
         var config = ncm_config(abi: 1, interface_index: row.index, generation: generation, endpoint_index: UInt32(endpoint.index), permissions: authorization.mask)
         let values = [identity.signingSeed, Data(identity.controllerID.utf8), Data(identity.peerID.utf8), identity.peerPublicKey,
                       identity.alternateIRK, Data(identity.peerUDID.utf8), Data(identity.peerModel.utf8)]

@@ -6,7 +6,10 @@ import ProviderCore
 private actor BatchBridge: DeviceBridge {
     var events: [String] = []
     let failInput: Bool
-    init(failInput: Bool = false) { self.failInput = failInput }
+    let appQueryError: AppError?
+    init(failInput: Bool = false, appQueryError: AppError? = nil) {
+        self.failInput = failInput; self.appQueryError = appQueryError
+    }
     func screenshot() async throws -> FrameImage {
         events.append("screenshot")
         return FrameImage(id: UUID().uuidString, png: Data(), width: 100, height: 100, capturedAt: Date(), isDemo: true)
@@ -16,8 +19,18 @@ private actor BatchBridge: DeviceBridge {
         if failInput { throw AppError.unknownOutcome }
     }
     func drag(fromX: Int, fromY: Int, toX: Int, toY: Int, durationMS: Int, imageID: String) async throws { events.append("drag") }
+    func installedApplications() async throws -> Data {
+        events.append("list_apps")
+        if let appQueryError { throw appQueryError }
+        return Data("[]".utf8)
+    }
     func stop() async { events.append("stop") }
     func granted() { events.append("approve") }
+}
+
+private actor BatchRequestCounter {
+    private(set) var count = 0
+    func record() { count += 1 }
 }
 
 private struct BatchProvider: ModelProvider {
@@ -25,7 +38,9 @@ private struct BatchProvider: ModelProvider {
     let configuration = ProviderConfiguration(name: name, baseURL: URL(string: "https://invalid.invalid")!, defaultModel: "fixture")
     let batches: [[ModelToolCall]]
     var expectedErrors: Set<String> = []
+    var requestCounter: BatchRequestCounter?
     func complete(_ request: ModelRequest) async throws -> ModelResponse {
+        await requestCounter?.record()
         let turn = request.messages.filter { !($0.toolCalls ?? []).isEmpty }.count
         let results = request.messages.filter { $0.role == .tool }
         let expected = batches.prefix(turn).flatMap { $0 }.map(\.id)
@@ -66,6 +81,60 @@ final class MultiToolTests: XCTestCase {
         let tools = devices + [SkillTool(name: "load_skill", catalog: SkillCatalog(packages: [skill]), canRead: { true })]
         return Agent(config: AgentConfig(provider: BatchProvider(batches: batches, expectedErrors: errors), enableRepairRetry: false, tools: tools, loopDetection: nil, parallelToolCalls: false))
     }
+    private func connectionRunner(_ calls: [ModelToolCall], bridge: BatchBridge, requests: BatchRequestCounter,
+                                  errors: Set<String>) -> (Agent, ActionCoordinator) {
+        let coordinator = ActionCoordinator(bridge: bridge, limits: AgentLimits(), approve: { _ in true },
+                                            onImage: { _, _ in }, onReceipt: { _ in })
+        let tools: [any AgentTool] = ["list_apps", "screenshot", "wait"].map { DeviceTool(name: $0, coordinator: coordinator) }
+        let provider = BatchProvider(batches: [calls], expectedErrors: errors, requestCounter: requests)
+        return (Agent(config: AgentConfig(provider: provider, enableRepairRetry: false, tools: tools,
+                                         loopDetection: nil, parallelToolCalls: false)), coordinator)
+    }
+
+    func testTerminalDeviceConnectionFailureStopsBatchAndModelWithoutLosingFirstError() async throws {
+        let message = "等待手机操控连接超时。synthetic connection failure"
+        let bridge = BatchBridge(appQueryError: .deviceConnectionFailed(message)), requests = BatchRequestCounter()
+        let calls = [call("connection", "list_apps"), call("later-screen", "screenshot"), call("later-apps", "list_apps")]
+        let (agent, coordinator) = connectionRunner(calls, bridge: bridge, requests: requests, errors: ["connection"])
+        var finalReplies: [String] = []
+        for try await event in agent.runStreamingTagged("synthetic device task") {
+            if case .turnCompleted(let text, let wasToolCallTurn) = event, !wasToolCallTurn { finalReplies.append(text) }
+        }
+        let events = await bridge.events, requestCount = await requests.count
+        XCTAssertEqual(events, ["list_apps", "stop"], "A terminal connection error must not dispatch any following device calls")
+        XCTAssertEqual(requestCount, 1, "A terminal connection error must stop before a second model request")
+        XCTAssertTrue(finalReplies.isEmpty, "Tool narration is not a successful final answer")
+        let results = agent.conversation.messages.flatMap { $0.toolResults ?? [] }
+        XCTAssertEqual(results.map(\.toolCallId), calls.map(\.id))
+        XCTAssertTrue(results.allSatisfy(\.isError))
+        XCTAssertEqual(results.first?.result, message)
+        XCTAssertTrue(results.dropFirst().allSatisfy { $0.result.contains("未执行") })
+        let terminal = await coordinator.terminalDeviceFailureMessage
+        XCTAssertEqual(terminal, message, "Skipped follow-up calls must not hide the first connection error")
+        _ = await coordinator.recordFailure(AppError.unavailable("本轮已停止，此工具未执行。"))
+        let retained = await coordinator.terminalDeviceFailureMessage
+        XCTAssertEqual(retained, message)
+    }
+
+    func testOrdinaryUnavailableStillAllowsNextDeviceCallAndModelReply() async throws {
+        let message = "synthetic temporary tool unavailable"
+        let bridge = BatchBridge(appQueryError: .unavailable(message)), requests = BatchRequestCounter()
+        let calls = [call("temporary", "list_apps"), call("next-screen", "screenshot")]
+        let (agent, coordinator) = connectionRunner(calls, bridge: bridge, requests: requests, errors: ["temporary"])
+        let answer = try await agent.run("synthetic ordinary tool failure")
+        let events = await bridge.events, requestCount = await requests.count
+        XCTAssertEqual(answer, "batch finished")
+        XCTAssertEqual(events, ["list_apps", "screenshot"], "An ordinary unavailable error must not stop the device batch")
+        XCTAssertEqual(requestCount, 2, "An ordinary error must still reach the next model response")
+        let results = agent.conversation.messages.flatMap { $0.toolResults ?? [] }
+        XCTAssertEqual(results.map(\.toolCallId), calls.map(\.id))
+        XCTAssertEqual(results.first?.result, message)
+        XCTAssertTrue(results.first?.isError == true)
+        XCTAssertTrue(results.last?.isError == false)
+        let terminal = await coordinator.terminalDeviceFailureMessage
+        XCTAssertNil(terminal)
+    }
+
     func testKnownSequenceKeepsPerActionApprovalWithoutIntermediateCaptures() async throws {
         let bridge = BatchBridge()
         let calls = [call("s", "screenshot"), call("t1", "tap", tap),

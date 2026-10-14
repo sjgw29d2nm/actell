@@ -35,6 +35,21 @@ int main(void){
     assert(nd_relay_prepare(&a,&catalog,&link,tunnel,&rejected)==BRIDGE_E_NOT_FOUND);
     assert(nd_relay_prepare(&a,&catalog,&link,"NR1 OPEN 6 0 0123456789abcdef0123456789abcdef",&rejected)==BRIDGE_E_NOT_FOUND);
     start(&a,&catalog,&link,open,&control,&c,&p,&ct,server);
+    // Another transport cannot join or cancel this owner's session even when
+    // it knows the nonce. Each source field independently remains a fence.
+    for(unsigned field=0;field<3;field++) {
+        nd_link foreign=link;
+        if(field==0)foreign.local4[3]^=1;
+        else if(field==1)foreign.peer4[3]^=1;
+        else ++foreign.interface_index;
+        assert(nd_relay_prepare(&a,&catalog,&foreign,tunnel,&rejected)==BRIDGE_E_NOT_FOUND);
+        assert(nd_relay_prepare(&a,&catalog,&foreign,cancel,&rejected)==BRIDGE_E_NOT_FOUND);
+        assert(!atomic_load(&a.cancelled)&&a.started==1&&nd_relay_busy(&a));
+        assert(a.base.interface_index==link.interface_index&&!memcmp(a.base.local4,link.local4,4)&&!memcmp(a.base.peer4,link.peer4,4));
+        char fence_payload[]="owner remains live",fence_got[sizeof fence_payload];
+        exact(c,fence_payload,sizeof fence_payload,true);exact(p,fence_got,sizeof fence_got,false);
+        assert(!memcmp(fence_payload,fence_got,sizeof fence_payload));
+    }
     assert(nd_relay_prepare(&a,&catalog,&link,open,&rejected)==BRIDGE_E_LIMIT);
     assert(nd_relay_prepare(&a,&catalog,&link,"NR1 TUNNEL ffffffffffffffffffffffffffffffff 1234",&rejected)==BRIDGE_E_NOT_FOUND);
     start(&a,&catalog,&link,tunnel,&data,&d,&q,&dt,server);
@@ -49,5 +64,5 @@ int main(void){
     char payload[]="other session still live",got[sizeof payload];exact(o,payload,sizeof payload,true);exact(r,got,sizeof got,false);assert(!memcmp(got,payload,sizeof got));assert(!atomic_load(&other.cancelled));
     close(o);pthread_join(ot,NULL);assert(atomic_load(&other.cancelled));assert(!nd_relay_busy(&other));
     close(c);close(p);close(d);close(q);close(r);close(server);
-    puts("Relay: bounded bidirectional 1MiB streams, blocked-consumer backpressure, two channels, cancel fanout, independent sessions, stale/wrong nonce and duplicate rejection passed");
+    puts("Relay: bounded bidirectional 1MiB streams, blocked-consumer backpressure, two channels, cancel fanout, independent sessions, cross-transport source fences, stale/wrong nonce and duplicate rejection passed");
 }

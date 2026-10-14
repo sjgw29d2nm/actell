@@ -6,6 +6,7 @@
 #include <unistd.h>
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
+#include "lwip/if_api.h"
 #else
 #include <arpa/inet.h>
 #include <sys/select.h>
@@ -55,6 +56,13 @@ bridge_status nd_socket_connect(nd_socket *s,const nd_link *link,const nd_endpoi
 #ifdef __APPLE__
     int yes=1; if (setsockopt(s->fd,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof yes)<0) goto failed;
     if (setsockopt(s->fd,family==AF_INET?IPPROTO_IP:IPPROTO_IPV6,family==AF_INET?IP_BOUND_IF:IPV6_BOUND_IF,&link->interface_index,sizeof link->interface_index)<0) goto failed;
+#endif
+#ifdef ESP_PLATFORM
+    /* Source-address binding alone cannot disambiguate overlapping USB/STA
+     * subnets. ESP-IDF's public socket option pins the TCP PCB to this netif. */
+    struct ifreq device={0};
+    if (!lwip_if_indextoname(link->interface_index,device.ifr_name) ||
+        setsockopt(s->fd,SOL_SOCKET,SO_BINDTODEVICE,&device,sizeof device)<0) goto failed;
 #endif
     int r;
     if (family==AF_INET) {

@@ -53,6 +53,10 @@ struct DeviceTool: AgentTool {
             }
             let message = await coordinator.recordFailure(error)
             await coordinator.toolFailed(callID: context.callId, message: message)
+            if case AppError.deviceConnectionFailed = error {
+                context.actions.shouldStop = true
+                await coordinator.stop()
+            }
             return .error(toolCallId: context.callId, toolName: name, message: message)
         }
     }
@@ -70,6 +74,7 @@ actor ActionCoordinator {
     private var inputInFlight = false
     private var stopTask: Task<Void, Never>?
     private(set) var finishSummary: String?
+    private(set) var terminalDeviceFailureMessage: String?
     private let lifecycle: RunLifecycleCoordinator?
     private let generation: UUID
     private var pendingCallID: String?
@@ -265,6 +270,9 @@ actor ActionCoordinator {
     }
     func recordFailure(_ error: Error) -> String {
         image = nil
+        if case AppError.deviceConnectionFailed(let message) = error {
+            terminalDeviceFailureMessage = String(message.prefix(1_000))
+        }
         return Self.safeToolError(error)
     }
     private static func safeToolError(_ error: Error) -> String {
